@@ -11,9 +11,6 @@
       background:#dfe9d6;
       padding:14px;
     }
-    h2{
-      margin-bottom:12px;
-    }
     .card{
       background:#fffdf1;
       border:2px solid #6a7b5f;
@@ -31,9 +28,8 @@
       box-sizing:border-box;
     }
     button{
-      cursor:pointer;
-      background:#eee;
       font-weight:bold;
+      cursor:pointer;
     }
     button:disabled{
       opacity:0.4;
@@ -46,7 +42,6 @@
       border-radius:10px;
       min-height:140px;
       white-space:pre-wrap;
-      font-size:14px;
     }
   </style>
 </head>
@@ -55,7 +50,6 @@
 
 <h2>🏰 Arena</h2>
 
-<!-- JOIN ROOM -->
 <div class="card">
   <h3>Join Room</h3>
 
@@ -69,7 +63,6 @@
   <button onclick="connectSpectate()">Spectate (Watch)</button>
 </div>
 
-<!-- PLAYERS -->
 <div class="card">
   <h3>Players</h3>
 
@@ -86,90 +79,82 @@
   </button>
 </div>
 
-<!-- LOG -->
 <div class="card">
   <h3>Battle Log</h3>
   <div id="log">Not connected.</div>
 </div>
 
-<!-- SOCKET.IO -->
 <script src="/socket.io/socket.io.js"></script>
 
 <script>
-  // ✅ Render-safe Socket connection (no localhost)
   const socket = io();
-
   let lastResult = "";
 
   function log(msg){
     const box = document.getElementById("log");
     box.textContent += "\n" + msg;
-    box.scrollTop = box.scrollHeight;
   }
 
-  // When connected
   socket.on("connect", ()=>{
     document.getElementById("log").textContent = "";
     log("✅ Connected to server!");
   });
 
-  // When disconnected
-  socket.on("disconnect", ()=>{
-    log("❌ Disconnected.");
+  socket.on("matchResult", (data)=>{
+    log("📢 Result received:");
+    log(data.result);
+
+    lastResult = data.result;
+    document.getElementById("shareBtn").disabled = false;
   });
 
-  // HOST
   function connectHost(){
-    const room = document.getElementById("room").value.trim();
-    const pass = document.getElementById("pass").value.trim();
-
-    socket.emit("hostRoom", { room, pass });
-    log("🎮 Hosting room: " + room);
+    socket.emit("hostRoom", {
+      room: room.value.trim(),
+      pass: pass.value.trim()
+    });
+    log("🎮 Hosting room: " + room.value);
   }
 
-  // SPECTATE
   function connectSpectate(){
-    const room = document.getElementById("room").value.trim();
-    const pass = document.getElementById("pass").value.trim();
-
-    socket.emit("spectateRoom", { room, pass });
-    log("👀 Watching room: " + room);
+    socket.emit("spectateRoom", {
+      room: room.value.trim(),
+      pass: pass.value.trim()
+    });
+    log("👀 Watching room: " + room.value);
   }
 
-  // START MATCH
   function startMatch(){
-    const A = document.getElementById("a").value.trim();
-    const B = document.getElementById("b").value.trim();
+    const A = a.value.trim();
+    const B = b.value.trim();
 
     if(!A || !B){
-      alert("Please enter both player names!");
+      alert("Enter both names!");
       return;
     }
 
-    // Fake battle result (demo)
     const winner = Math.random() > 0.5 ? A : B;
-
     lastResult = `🏆 Winner: ${winner}\n(${A} vs ${B})`;
 
-    log("⚔️ Match started...");
-    log(lastResult);
+    log("⚔ Match started...");
+    log("📤 Sending result...");
 
-    // Enable Share button
+    socket.emit("matchResult", {
+      room: room.value.trim(),
+      password: pass.value.trim(),
+      result: lastResult
+    });
+
     document.getElementById("shareBtn").disabled = false;
   }
 
-  // SHARE RESULT
   function shareResult(){
     if(!lastResult) return;
 
-    if(navigator.share){
-      navigator.share({
-        title: "Arena Match Result",
-        text: lastResult
-      });
-    } else {
-      alert("Sharing not supported on this device.");
-    }
+    navigator.share({
+      title: "Arena Match Result",
+      text: lastResult
+    });
   }
 </script>
 
