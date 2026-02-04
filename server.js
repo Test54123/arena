@@ -43,7 +43,6 @@ function manhattan(a, b) {
 
 // --- Kraft helpers (server stores kraft for display) ---
 function parseKraftValue(v) {
-  // accepts "36.846.418" or "36846418" or numbers
   if (v === null || v === undefined) return 0;
   const s = String(v).replace(/\./g, "").replace(/\s/g, "").trim();
   const x = Number.parseInt(s, 10);
@@ -68,22 +67,20 @@ function initialPlayerState(seat, name, stats) {
     seat,
     name: name || (seat === "A" ? "Player A" : "Player B"),
     connected: true,
-    // base stats
     hpMax: clampInt(stats.hpMax, 10, 200, 50),
     atk: clampInt(stats.atk, 1, 50, 10),
     def: clampInt(stats.def, 0, 50, 5),
-    // kraft stored for UI display
     kraft,
-    // runtime
     hp: clampInt(stats.hpMax, 10, 200, 50),
     pos,
-    // action counters
     usedDefend: 0,
     usedHeal: 0,
-    // defend flag
     shield: 0,
+    socketId: null,
   };
 }
+
+const rooms = {};
 
 function safeStateForClients(room) {
   const r = rooms[room];
@@ -102,7 +99,6 @@ function safeStateForClients(room) {
       usedDefend: p.usedDefend,
       usedHeal: p.usedHeal,
       shield: p.shield,
-      // expose kraft summary (and breakdown) for display
       kraft: p.kraft || { squad: 0, build: 0, tech: 0, gov: 0, hero: 0, pet: 0, total: 0 },
     };
   }
@@ -149,10 +145,7 @@ function ensureRoom(room, pass) {
       endTime: null,
       lastEvent: null,
       log: [],
-      timers: {
-        event: null,
-        tick: null,
-      },
+      timers: { event: null, tick: null },
     };
   }
 }
@@ -274,9 +267,7 @@ function startGame(room) {
   emitState(room);
 }
 
-// ---------- ROOMS ----------
-const rooms = {};
-
+// ---------- room helpers ----------
 function validateRoomCode(room) {
   if (typeof room !== "string") return null;
   const r = room.trim();
@@ -321,7 +312,10 @@ io.on("connection", (socket) => {
 
     socket.join(code);
     socket.data.room = code;
+
+    // host role
     socket.emit("role", { role: "host" });
+
     roomLog(code, `🎮 Host connected.`);
     emitState(code);
   });
@@ -364,7 +358,6 @@ io.on("connection", (socket) => {
       player.atk = clampInt(st.atk, 1, 50, player.atk);
       player.def = clampInt(st.def, 0, 50, player.def);
       player.hp = player.hpMax;
-      // update kraft for display
       player.kraft = normalizeKraft(st.kraft || {});
     }
 
@@ -375,7 +368,14 @@ io.on("connection", (socket) => {
     socket.join(code);
     socket.data.room = code;
 
-    socket.emit("role", { role: "player", seat });
+    // IMPORTANT FIX:
+    // If this socket is also the host, keep role as "host" (and send seat info).
+    if (r.hostId === socket.id) {
+      socket.emit("role", { role: "host", seat });
+    } else {
+      socket.emit("role", { role: "player", seat });
+    }
+
     roomLog(code, `🧍 Player ${seat} joined as "${player.name}".`);
     emitState(code);
   });
