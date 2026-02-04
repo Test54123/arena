@@ -1,114 +1,132 @@
 const express = require("express");
 const http = require("http");
-const WebSocket = require("ws");
+const { Server } = require("socket.io");
 
 const app = express();
 app.use(express.static("public"));
 
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const io = new Server(server, {
+  cors: { origin: true, methods: ["GET", "POST"] },
+});
 
-const rooms = new Map();
-const RESULT_WINDOW_MS = 10 * 60 * 1000;
+const rooms = new Map(); // roomCode -> { password, hostId, lastResult, createdAt }
 
-function send(ws, obj) {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(obj));
+function normRoom(x) {
+  return String(x || "").trim().toUpperCase();
+}
+function normPass(x) {
+  return String(x || "").trim();
+}
+
+function getRoom(roomCode) {
+  const r = rooms.get(roomCode);
+  if (!r) return null;
+  return r;
+}
+
+function cleanupRoomIfEmpty(roomCode) {
+  const r = rooms.get(roomCode);
+  if (!r) return;
+  const socketsInRoom = io.sockets.adapter.rooms.get(roomCode);
+  if (!socketsInRoom || socketsInRoom.size === 0) {
+    rooms.delete(roomCode);
   }
 }
 
-function broadcast(room, obj) {
-  if (room.host) send(room.host, obj);
-  for (const sp of room.spectators) send(sp, obj);
-}
+io.on("connection", (socket) => {
+  socket.data.room = null;
+  socket.data.role = null; // "host" | "spectator"
 
-function cleanupRoom(code) {
-  rooms.delete(code);
-}
+  socket.on("join", ({ room, password, role }) => {
+    const roomCode = normRoom(room);
+    const pw = normPass(password);
+    const r = role === "host" ? "host" : "spectator";
 
-wss.on("connection", (ws) => {
-  let roomCode = null;
-
-  ws.on("message", (raw) => {
-    let msg;
-    try { msg = JSON.parse(raw); } catch { return; }
-
-    if (msg.type === "join") {
-      roomCode = String(msg.room || "").trim().toUpperCase();
-      const role = msg.role === "host" ? "host" : "spectator";
-      const pw = String(msg.password || "");
-
-      if (!rooms.has(roomCode)) {
-        if (role !== "host") {
-          return send(ws, { type:"error", error:"Host must join first." });
-        }
-
-        rooms.set(roomCode, {
-          password: pw,
-          host: ws,
-          spectators: new Set(),
-          lastState: null,
-          locked: false
-        });
-
-        return send(ws, { type:"joined", role:"host" });
-      }
-
-      const room = rooms.get(roomCode);
-
-      if (room.password !== pw) {
-        return send(ws, { type:"error", error:"Wrong password." });
-      }
-
-      if (role === "spectator") {
-        room.spectators.add(ws);
-        send(ws, { type:"joined", role:"spectator" });
-
-        if (room.lastState) {
-          send(ws, { type:"state", state: room.lastState });
-        }
-      }
-
-      if (role === "host") {
-        room.host = ws;
-        send(ws, { type:"joined", role:"host" });
-      }
+    if (!roomCode) {
+      socket.emit("errorMsg", { error: "Room code missing." });
+      return;
     }
 
-    if (msg.type === "state") {
-      const room = rooms.get(roomCode);
-      if (!room) return;
-
-      room.lastState = msg.state;
-      for (const sp of room.spectators) {
-        send(sp, { type:"state", state: msg.state });
+    // If room doesn't exist: only host can create it
+    if (!rooms.has(roomCode)) {
+      if (r !== "host") {
+        socket.emit("errorMsg", { error: "Host must join first." });
+        return;
       }
+      rooms.set(roomCode, {
+        password: pw,
+        hostId: socket.id,
+        lastResult: null,
+        createdAt: Date.now(),
+      });
     }
 
-    if (msg.type === "end_match") {
-      const room = rooms.get(roomCode);
-      if (!room) return;
+    const roomObj = getRoom(roomCode);
+    if (!roomObj) {
+      socket.emit("errorMsg", { error: "Room not available." });
+      return;
+    }
 
-      room.locked = true;
-      room.lastState = msg.state;
+    // Password check (host can set it on first create; afterwards it must match)
+    if (roomObj.password !== pw) {
+      socket.emit("errorMsg", { error: "Wrong password." });
+      return;
+    }
 
-      broadcast(room, { type:"match_ended", state: msg.state });
+    // If a second host tries to join: block (keeps it simple + safe)
+    if (r === "host" && roomObj.hostId && roomObj.hostId !== socket.id) {
+      socket.emit("errorMsg", { error: "Host already present." });
+      return;
+    }
 
-      setTimeout(() => cleanupRoom(roomCode), RESULT_WINDOW_MS);
+    socket.join(roomCode);
+    socket.data.room = roomCode;
+    socket.data.role = r;
+
+    if (r === "host") roomObj.hostId = socket.id;
+
+    socket.emit("joined", { role: r });
+
+    // If spectator joins and we already have a last result, send it
+    if (r === "spectator" && roomObj.lastResult) {
+      socket.emit("matchResult", roomObj.lastResult);
     }
   });
 
-  ws.on("close", () => {
-    const room = rooms.get(roomCode);
-    if (!room) return;
+  socket.on("matchResult", ({ room, password, result }) => {
+    const roomCode = normRoom(room);
+    const pw = normPass(password);
+    const roomObj = getRoom(roomCode);
+    if (!roomObj) return;
 
-    room.spectators.delete(ws);
-    if (room.host === ws) room.host = null;
+    // Only host can broadcast results
+    if (socket.id !== roomObj.hostId) return;
+    if (roomObj.password !== pw) return;
 
-    if (!room.host && room.spectators.size === 0) {
-      rooms.delete(roomCode);
+    roomObj.lastResult = result || null;
+    io.to(roomCode).emit("matchResult", result);
+  });
+
+  socket.on("disconnect", () => {
+    const roomCode = socket.data.room;
+    const role = socket.data.role;
+
+    if (roomCode && rooms.has(roomCode)) {
+      const roomObj = rooms.get(roomCode);
+
+      // If host leaves, delete the room (simple + prevents stale rooms)
+      if (role === "host" && roomObj && roomObj.hostId === socket.id) {
+        rooms.delete(roomCode);
+      } else {
+        cleanupRoomIfEmpty(roomCode);
+      }
     }
   });
 });
 
-server.listen(process.env.PORT || 3000);
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  // Kein Tracking, nur Minimal-Startmeldung:
+  console.log("Server running on port", PORT);
+});
