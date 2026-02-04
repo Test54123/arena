@@ -30,7 +30,6 @@ function now() {
 }
 
 function cornerType(x, y) {
-  // four corners: (0,0),(3,0),(0,3),(3,3) for 4x4
   if (x === 0 && y === 0) return "NW";
   if (x === GRID_W - 1 && y === 0) return "NE";
   if (x === 0 && y === GRID_H - 1) return "SW";
@@ -42,9 +41,29 @@ function manhattan(a, b) {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
 
+// --- Kraft helpers (server stores kraft for display) ---
+function parseKraftValue(v) {
+  // accepts "36.846.418" or "36846418" or numbers
+  if (v === null || v === undefined) return 0;
+  const s = String(v).replace(/\./g, "").replace(/\s/g, "").trim();
+  const x = Number.parseInt(s, 10);
+  return Number.isFinite(x) ? x : 0;
+}
+
+function normalizeKraft(k) {
+  const squad = parseKraftValue(k?.squad);
+  const build = parseKraftValue(k?.build);
+  const tech = parseKraftValue(k?.tech);
+  const gov = parseKraftValue(k?.gov);
+  const hero = parseKraftValue(k?.hero);
+  const pet = parseKraftValue(k?.pet);
+  const total = squad + build + tech + gov + hero + pet;
+  return { squad, build, tech, gov, hero, pet, total };
+}
+
 function initialPlayerState(seat, name, stats) {
-  // Spawn at opposite corners
   const pos = seat === "A" ? { x: 0, y: 0 } : { x: GRID_W - 1, y: GRID_H - 1 };
+  const kraft = normalizeKraft(stats?.kraft || {});
   return {
     seat,
     name: name || (seat === "A" ? "Player A" : "Player B"),
@@ -53,21 +72,40 @@ function initialPlayerState(seat, name, stats) {
     hpMax: clampInt(stats.hpMax, 10, 200, 50),
     atk: clampInt(stats.atk, 1, 50, 10),
     def: clampInt(stats.def, 0, 50, 5),
+    // kraft stored for UI display
+    kraft,
     // runtime
     hp: clampInt(stats.hpMax, 10, 200, 50),
     pos,
     // action counters
     usedDefend: 0,
     usedHeal: 0,
-    // defend flag (reduces next damage)
-    shield: 0, // number of hits left (we use 1)
+    // defend flag
+    shield: 0,
   };
 }
 
 function safeStateForClients(room) {
-  // Don’t expose password, and only expose what UI needs
   const r = rooms[room];
   if (!r) return null;
+
+  function packPlayer(p) {
+    if (!p) return null;
+    return {
+      name: p.name,
+      connected: p.connected,
+      hp: p.hp,
+      hpMax: p.hpMax,
+      atk: p.atk,
+      def: p.def,
+      pos: p.pos,
+      usedDefend: p.usedDefend,
+      usedHeal: p.usedHeal,
+      shield: p.shield,
+      // expose kraft summary (and breakdown) for display
+      kraft: p.kraft || { squad: 0, build: 0, tech: 0, gov: 0, hero: 0, pet: 0, total: 0 },
+    };
+  }
 
   return {
     room,
@@ -80,30 +118,8 @@ function safeStateForClients(room) {
     log: r.log.slice(-60),
     host: { connected: !!r.hostId },
     players: {
-      A: r.players.A ? {
-        name: r.players.A.name,
-        connected: r.players.A.connected,
-        hp: r.players.A.hp,
-        hpMax: r.players.A.hpMax,
-        atk: r.players.A.atk,
-        def: r.players.A.def,
-        pos: r.players.A.pos,
-        usedDefend: r.players.A.usedDefend,
-        usedHeal: r.players.A.usedHeal,
-        shield: r.players.A.shield,
-      } : null,
-      B: r.players.B ? {
-        name: r.players.B.name,
-        connected: r.players.B.connected,
-        hp: r.players.B.hp,
-        hpMax: r.players.B.hpMax,
-        atk: r.players.B.atk,
-        def: r.players.B.def,
-        pos: r.players.B.pos,
-        usedDefend: r.players.B.usedDefend,
-        usedHeal: r.players.B.usedHeal,
-        shield: r.players.B.shield,
-      } : null,
+      A: packPlayer(r.players.A),
+      B: packPlayer(r.players.B),
     },
   };
 }
@@ -160,7 +176,6 @@ function resetGame(room) {
   r.lastEvent = null;
   stopTimers(room);
 
-  // Respawn players (keep base stats and names)
   ["A", "B"].forEach((seat) => {
     if (r.players[seat]) {
       const p = r.players[seat];
@@ -188,15 +203,23 @@ function applyMinuteEvent(room, minuteIndex) {
   const r = rooms[room];
   if (!r || !r.started) return;
 
-  // Simple random event each minute
   const events = [
     { id: "atkUpA", text: "✨ Player A +2 ATK", fn: () => { if (r.players.A) r.players.A.atk += 2; } },
     { id: "atkUpB", text: "✨ Player B +2 ATK", fn: () => { if (r.players.B) r.players.B.atk += 2; } },
     { id: "defUpA", text: "🛡️ Player A +2 DEF", fn: () => { if (r.players.A) r.players.A.def += 2; } },
     { id: "defUpB", text: "🛡️ Player B +2 DEF", fn: () => { if (r.players.B) r.players.B.def += 2; } },
-    { id: "atkDownBoth", text: "💀 Both -1 ATK", fn: () => { if (r.players.A) r.players.A.atk = Math.max(1, r.players.A.atk - 1); if (r.players.B) r.players.B.atk = Math.max(1, r.players.B.atk - 1); } },
-    { id: "defDownBoth", text: "💀 Both -1 DEF", fn: () => { if (r.players.A) r.players.A.def = Math.max(0, r.players.A.def - 1); if (r.players.B) r.players.B.def = Math.max(0, r.players.B.def - 1); } },
-    { id: "healBoth", text: "🌿 Both heal +5 HP", fn: () => { if (r.players.A) r.players.A.hp = Math.min(r.players.A.hpMax, r.players.A.hp + 5); if (r.players.B) r.players.B.hp = Math.min(r.players.B.hpMax, r.players.B.hp + 5); } },
+    { id: "atkDownBoth", text: "💀 Both -1 ATK", fn: () => {
+      if (r.players.A) r.players.A.atk = Math.max(1, r.players.A.atk - 1);
+      if (r.players.B) r.players.B.atk = Math.max(1, r.players.B.atk - 1);
+    }},
+    { id: "defDownBoth", text: "💀 Both -1 DEF", fn: () => {
+      if (r.players.A) r.players.A.def = Math.max(0, r.players.A.def - 1);
+      if (r.players.B) r.players.B.def = Math.max(0, r.players.B.def - 1);
+    }},
+    { id: "healBoth", text: "🌿 Both heal +5 HP", fn: () => {
+      if (r.players.A) r.players.A.hp = Math.min(r.players.A.hpMax, r.players.A.hp + 5);
+      if (r.players.B) r.players.B.hp = Math.min(r.players.B.hpMax, r.players.B.hp + 5);
+    }},
   ];
 
   const pick = events[Math.floor(Math.random() * events.length)];
@@ -223,25 +246,21 @@ function startGame(room) {
 
   let minuteIndex = 0;
 
-  // Minute events
   r.timers.event = setInterval(() => {
     if (!r.started) return;
     minuteIndex += 1;
     applyMinuteEvent(room, minuteIndex);
   }, EVENT_INTERVAL_MS);
 
-  // Tick for ending the game
   r.timers.tick = setInterval(() => {
     if (!r.started) return;
 
-    // Win conditions
     const A = r.players.A;
     const B = r.players.B;
     if (A && A.hp <= 0) return endGame(room, "Player B wins (Player A defeated) 🏆");
     if (B && B.hp <= 0) return endGame(room, "Player A wins (Player B defeated) 🏆");
 
     if (now() >= r.endTime) {
-      // decide by HP
       const aHp = A ? A.hp : 0;
       const bHp = B ? B.hp : 0;
       if (aHp > bHp) endGame(room, "Time up — Player A wins 🏆");
@@ -256,10 +275,9 @@ function startGame(room) {
 }
 
 // ---------- ROOMS ----------
-const rooms = {}; // roomCode -> roomState
+const rooms = {};
 
 function validateRoomCode(room) {
-  // simple: letters/numbers/_- up to 20
   if (typeof room !== "string") return null;
   const r = room.trim();
   if (!r) return null;
@@ -292,16 +310,13 @@ io.on("connection", (socket) => {
     const p = String(pass || "").trim();
     if (!p) return socket.emit("errorMsg", "Password required.");
 
-    // create or validate
     if (!rooms[code]) {
       ensureRoom(code, p);
       roomLog(code, `🏠 Room created by host.`);
     } else {
-      // existing room: require correct pass
       if (!checkPass(rooms[code], p)) return socket.emit("errorMsg", "Wrong password.");
     }
 
-    // set host
     rooms[code].hostId = socket.id;
 
     socket.join(code);
@@ -333,7 +348,6 @@ io.on("connection", (socket) => {
     if (!checkPass(r, String(pass || "").trim())) return socket.emit("errorMsg", "Wrong password.");
     if (seat !== "A" && seat !== "B") return socket.emit("errorMsg", "Seat must be A or B.");
 
-    // If seat taken by someone else, block
     if (r.players[seat] && r.players[seat].socketId && r.players[seat].socketId !== socket.id) {
       return socket.emit("errorMsg", `Seat ${seat} already taken.`);
     }
@@ -344,13 +358,14 @@ io.on("connection", (socket) => {
       ? r.players[seat]
       : initialPlayerState(seat, cleanName, st);
 
-    // If player existed, update base stats + name (only if game not started)
     if (!r.started) {
       player.name = cleanName;
       player.hpMax = clampInt(st.hpMax, 10, 200, player.hpMax);
       player.atk = clampInt(st.atk, 1, 50, player.atk);
       player.def = clampInt(st.def, 0, 50, player.def);
       player.hp = player.hpMax;
+      // update kraft for display
+      player.kraft = normalizeKraft(st.kraft || {});
     }
 
     player.socketId = socket.id;
@@ -410,7 +425,6 @@ io.on("connection", (socket) => {
 
     if (nx < 0 || nx >= GRID_W || ny < 0 || ny >= GRID_H) return;
 
-    // prevent overlapping (optional)
     const otherSeat = role.seat === "A" ? "B" : "A";
     const o = r.players[otherSeat];
     if (o && o.pos.x === nx && o.pos.y === ny) {
@@ -443,7 +457,7 @@ io.on("connection", (socket) => {
     if (type === "defend") {
       if (me.usedDefend >= MAX_DEFEND) return socket.emit("errorMsg", "Defend limit reached.");
       me.usedDefend += 1;
-      me.shield = 1; // reduce next hit
+      me.shield = 1;
       roomLog(code, `🛡️ ${me.name} uses DEFEND (${me.usedDefend}/${MAX_DEFEND}).`);
       return emitState(code);
     }
@@ -458,7 +472,6 @@ io.on("connection", (socket) => {
     }
 
     if (type === "attack") {
-      // must be adjacent (distance 1)
       if (manhattan(me.pos, them.pos) !== 1) return socket.emit("errorMsg", "You must be adjacent to attack.");
 
       let dmg = Math.max(1, me.atk - them.def);
