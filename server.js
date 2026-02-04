@@ -7,258 +7,327 @@ app.use(express.static("public"));
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: true, methods: ["GET", "POST"] }
+  cors: { origin: true, methods: ["GET", "POST"] },
 });
 
-// rooms: Map<roomCode, roomObj>
 const rooms = new Map();
 
 function normRoom(x) {
   return String(x || "").trim().toUpperCase();
 }
 
-function now() {
-  return new Date().toISOString();
+function clamp(n, min, max) {
+  n = Number(n);
+  if (Number.isNaN(n)) return min;
+  return Math.max(min, Math.min(max, n));
 }
 
-function newGameState(playerAName, playerBName) {
+function makePlayer({ name, hp, atk, def, heal }, socketId) {
+  const maxHp = clamp(hp, 10, 9999);
   return {
-    started: false,
-    turn: "A", // "A" or "B"
-    players: {
-      A: { name: playerAName || "PlayerA", hp: 30, defending: false },
-      B: { name: playerBName || "PlayerB", hp: 30, defending: false }
-    },
-    log: [
-      { t: now(), msg: "Room created. Waiting to start…" }
-    ]
+    name: String(name || "Player").slice(0, 30),
+    hp: maxHp,
+    maxHp,
+    atk: clamp(atk, 1, 999),
+    def: clamp(def, 0, 999),
+    heal: clamp(heal, 0, 999),
+    shield: 0,      // reduces next damage
+    socketId,
   };
 }
 
-function pushLog(room, msg) {
-  room.game.log.push({ t: now(), msg });
-  // keep log reasonable
-  if (room.game.log.length > 60) room.game.log.shift();
+function roomStatePublic(room) {
+  // only the safe state for clients
+  return {
+    code: room.code,
+    started: room.started,
+    turn: room.turn, // "A" or "B"
+    players: {
+      A: room.players.A
+        ? {
+            name: room.players.A.name,
+            hp: room.players.A.hp,
+            maxHp: room.players.A.maxHp,
+            atk: room.players.A.atk,
+            def: room.players.A.def,
+            heal: room.players.A.heal,
+            shield: room.players.A.shield,
+          }
+        : null,
+      B: room.players.B
+        ? {
+            name: room.players.B.name,
+            hp: room.players.B.hp,
+            maxHp: room.players.B.maxHp,
+            atk: room.players.B.atk,
+            def: room.players.B.def,
+            heal: room.players.B.heal,
+            shield: room.players.B.shield,
+          }
+        : null,
+    },
+    winner: room.winner, // "A" | "B" | null
+  };
 }
 
-function emitState(roomCode) {
-  const room = rooms.get(roomCode);
+function emitState(code) {
+  const room = rooms.get(code);
   if (!room) return;
-  io.to(roomCode).emit("state", {
-    room: roomCode,
-    game: room.game
-  });
+  io.to(code).emit("state", roomStatePublic(room));
 }
 
-function emitError(socket, msg) {
-  socket.emit("errorMsg", msg);
+function logToRoom(code, msg) {
+  io.to(code).emit("log", msg);
+}
+
+function ensureRoom(code, pass) {
+  code = normRoom(code);
+  if (!code) return { ok: false, error: "Missing room code." };
+
+  let room = rooms.get(code);
+  if (!room) {
+    room = {
+      code,
+      pass: String(pass || ""),
+      hostId: null,
+      spectators: new Set(),
+      players: { A: null, B: null },
+      started: false,
+      turn: "A",
+      winner: null,
+    };
+    rooms.set(code, room);
+  }
+  // if room exists, verify password
+  if (room.pass !== String(pass || "")) {
+    return { ok: false, error: "Wrong password." };
+  }
+  return { ok: true, room };
+}
+
+function seatOf(socketId, room) {
+  if (room.players.A?.socketId === socketId) return "A";
+  if (room.players.B?.socketId === socketId) return "B";
+  return null;
+}
+
+function otherSeat(seat) {
+  return seat === "A" ? "B" : "A";
+}
+
+function canAct(room) {
+  return (
+    room.started &&
+    !room.winner &&
+    room.players.A &&
+    room.players.B &&
+    (room.turn === "A" || room.turn === "B")
+  );
+}
+
+function endIfDead(room) {
+  const A = room.players.A;
+  const B = room.players.B;
+  if (!A || !B) return;
+
+  if (A.hp <= 0 && B.hp <= 0) {
+    // draw -> choose none (or you can decide)
+    room.winner = null;
+    room.started = false;
+    return;
+  }
+  if (A.hp <= 0) {
+    room.winner = "B";
+    room.started = false;
+  } else if (B.hp <= 0) {
+    room.winner = "A";
+    room.started = false;
+  }
 }
 
 io.on("connection", (socket) => {
-  socket.emit("serverHello", { ok: true });
+  socket.emit("log", "✅ Connected to server!");
 
-  // Create / host a room
   socket.on("hostRoom", ({ room, pass }) => {
-    const roomCode = normRoom(room);
-    const password = String(pass || "").trim();
+    const code = normRoom(room);
+    const res = ensureRoom(code, pass);
+    if (!res.ok) return socket.emit("errorMsg", res.error);
 
-    if (!roomCode) return emitError(socket, "Room code missing.");
-    if (!password) return emitError(socket, "Password missing.");
+    const r = res.room;
+    r.hostId = socket.id;
 
-    // Create new room (overwrite protection)
-    if (rooms.has(roomCode)) {
-      return emitError(socket, "Room already exists. Choose another code.");
-    }
-
-    const roomObj = {
-      pass: password,
-      hostId: socket.id,
-      createdAt: now(),
-      seats: { A: null, B: null }, // socket ids
-      watchers: new Set(),
-      game: newGameState("PlayerA", "PlayerB")
-    };
-
-    rooms.set(roomCode, roomObj);
-    socket.join(roomCode);
-    socket.data.room = roomCode;
-    socket.data.role = "HOST";
-
-    pushLog(roomObj, `Host connected (${socket.id}).`);
-    socket.emit("joined", { room: roomCode, role: "HOST" });
-    emitState(roomCode);
+    socket.join(code);
+    socket.emit("role", { role: "host", seat: null, room: code });
+    logToRoom(code, "🎮 Host joined room: " + code);
+    emitState(code);
   });
 
-  // Join as player (A or B)
-  socket.on("joinPlayer", ({ room, pass, seat, name }) => {
-    const roomCode = normRoom(room);
-    const password = String(pass || "").trim();
-    const s = (seat === "A" || seat === "B") ? seat : null;
-    const playerName = String(name || "").trim().slice(0, 20);
-
-    const roomObj = rooms.get(roomCode);
-    if (!roomObj) return emitError(socket, "Room not found.");
-    if (roomObj.pass !== password) return emitError(socket, "Wrong password.");
-    if (!s) return emitError(socket, "Seat must be A or B.");
-
-    if (roomObj.seats[s] && roomObj.seats[s] !== socket.id) {
-      return emitError(socket, `Seat ${s} is already taken.`);
-    }
-
-    // If this socket was in another role in same room, clean old role
-    if (socket.data.room === roomCode && socket.data.role) {
-      // nothing special needed here
-    }
-
-    roomObj.seats[s] = socket.id;
-
-    socket.join(roomCode);
-    socket.data.room = roomCode;
-    socket.data.role = `PLAYER_${s}`;
-    socket.data.seat = s;
-
-    // update name
-    if (playerName) roomObj.game.players[s].name = playerName;
-
-    pushLog(roomObj, `Player ${s} joined as "${roomObj.game.players[s].name}".`);
-    socket.emit("joined", { room: roomCode, role: `PLAYER_${s}`, seat: s });
-    emitState(roomCode);
-  });
-
-  // Join as spectator
   socket.on("spectateRoom", ({ room, pass }) => {
-    const roomCode = normRoom(room);
-    const password = String(pass || "").trim();
+    const code = normRoom(room);
+    const res = ensureRoom(code, pass);
+    if (!res.ok) return socket.emit("errorMsg", res.error);
 
-    const roomObj = rooms.get(roomCode);
-    if (!roomObj) return emitError(socket, "Room not found.");
-    if (roomObj.pass !== password) return emitError(socket, "Wrong password.");
+    const r = res.room;
+    r.spectators.add(socket.id);
 
-    roomObj.watchers.add(socket.id);
-
-    socket.join(roomCode);
-    socket.data.room = roomCode;
-    socket.data.role = "SPECTATOR";
-
-    pushLog(roomObj, `Spectator connected (${socket.id}).`);
-    socket.emit("joined", { room: roomCode, role: "SPECTATOR" });
-    emitState(roomCode);
+    socket.join(code);
+    socket.emit("role", { role: "spectator", seat: null, room: code });
+    logToRoom(code, "👀 Spectator joined: " + code);
+    emitState(code);
   });
 
-  // Host starts game and sets names
-  socket.on("startGame", ({ room, playerAName, playerBName }) => {
-    const roomCode = normRoom(room);
-    const roomObj = rooms.get(roomCode);
-    if (!roomObj) return emitError(socket, "Room not found.");
+  socket.on("joinSeat", ({ room, pass, seat, name, hp, atk, def, heal }) => {
+    const code = normRoom(room);
+    const res = ensureRoom(code, pass);
+    if (!res.ok) return socket.emit("errorMsg", res.error);
 
-    if (socket.id !== roomObj.hostId) {
-      return emitError(socket, "Only host can start the game.");
+    const r = res.room;
+    const s = seat === "B" ? "B" : "A";
+
+    // kick from previous seat if same socket
+    const prev = seatOf(socket.id, r);
+    if (prev) r.players[prev] = null;
+
+    // seat already taken by another socket?
+    if (r.players[s] && r.players[s].socketId !== socket.id) {
+      return socket.emit("errorMsg", `Seat ${s} already taken.`);
     }
 
-    const aName = String(playerAName || "").trim().slice(0, 20) || roomObj.game.players.A.name;
-    const bName = String(playerBName || "").trim().slice(0, 20) || roomObj.game.players.B.name;
+    r.players[s] = makePlayer({ name, hp, atk, def, heal }, socket.id);
 
-    roomObj.game = newGameState(aName, bName);
-    roomObj.game.started = true;
-    pushLog(roomObj, `Game started! ${aName} vs ${bName}. Turn: A`);
-    emitState(roomCode);
+    socket.join(code);
+    socket.emit("role", { role: "player", seat: s, room: code });
+    logToRoom(code, `🪑 ${r.players[s].name} joined seat ${s}`);
+    emitState(code);
   });
 
-  // Player action: attack / heal / defend
-  socket.on("action", ({ room, type }) => {
-    const roomCode = normRoom(room);
-    const roomObj = rooms.get(roomCode);
-    if (!roomObj) return emitError(socket, "Room not found.");
-    if (!roomObj.game.started) return emitError(socket, "Game not started.");
+  socket.on("startGame", ({ room, pass, aName, bName }) => {
+    const code = normRoom(room);
+    const res = ensureRoom(code, pass);
+    if (!res.ok) return socket.emit("errorMsg", res.error);
 
-    const role = socket.data.role;
-    if (role !== "PLAYER_A" && role !== "PLAYER_B") {
-      return emitError(socket, "Only players can act.");
+    const r = res.room;
+
+    if (r.hostId !== socket.id) {
+      return socket.emit("errorMsg", "Only host can start/reset.");
+    }
+    if (!r.players.A || !r.players.B) {
+      return socket.emit("errorMsg", "Need Player A and Player B first.");
     }
 
-    const seat = socket.data.seat; // "A" or "B"
-    if (roomObj.seats[seat] !== socket.id) {
-      return emitError(socket, "You are not bound to that seat anymore.");
-    }
+    // optional override names from host inputs
+    if (aName) r.players.A.name = String(aName).slice(0, 30);
+    if (bName) r.players.B.name = String(bName).slice(0, 30);
 
-    // Turn check
-    if (roomObj.game.turn !== seat) {
-      return emitError(socket, "Not your turn.");
-    }
+    // reset combat state
+    r.players.A.hp = r.players.A.maxHp;
+    r.players.B.hp = r.players.B.maxHp;
+    r.players.A.shield = 0;
+    r.players.B.shield = 0;
+    r.turn = "A";
+    r.winner = null;
+    r.started = true;
 
-    const me = roomObj.game.players[seat];
-    const otherSeat = seat === "A" ? "B" : "A";
-    const them = roomObj.game.players[otherSeat];
+    logToRoom(code, "🔄 Game started / reset!");
+    logToRoom(code, `➡️ Turn: ${r.players.A.name} (A)`);
+    emitState(code);
+  });
 
-    // reset defending flag when a player starts their turn? (simple model)
-    // We'll clear defending on the acting player at the start of their move,
-    // and clear defending on opponent when they have acted previously.
-    // For clarity: defending only reduces next incoming attack.
-    // So we do NOT clear opponent defending until it is used.
-    me.defending = false;
+  socket.on("action", ({ room, pass, type }) => {
+    const code = normRoom(room);
+    const res = ensureRoom(code, pass);
+    if (!res.ok) return socket.emit("errorMsg", res.error);
 
+    const r = res.room;
+    const seat = seatOf(socket.id, r);
+    if (!seat) return socket.emit("errorMsg", "You are not a player seat.");
+    if (!canAct(r)) return socket.emit("errorMsg", "Game not ready.");
+    if (r.turn !== seat) return socket.emit("errorMsg", "Not your turn.");
+
+    const me = r.players[seat];
+    const oppSeat = otherSeat(seat);
+    const them = r.players[oppSeat];
+
+    if (!me || !them) return;
+
+    // clear my shield only when I get hit (so no change here)
+    // action logic
     if (type === "defend") {
-      me.defending = true;
-      pushLog(roomObj, `${me.name} braces for impact (DEFEND).`);
+      // shield reduces next damage by (def + 10) capped
+      me.shield = clamp(me.def + 10, 5, 200);
+      logToRoom(code, `🛡 ${me.name} defends (shield +${me.shield})`);
     } else if (type === "heal") {
-      const heal = 5;
-      me.hp = Math.min(30, me.hp + heal);
-      pushLog(roomObj, `${me.name} heals +${heal} HP.`);
-    } else if (type === "attack") {
-      let dmg = 6;
-      if (them.defending) {
-        dmg = 3;
-        them.defending = false; // consumed
-        pushLog(roomObj, `${them.name} defended! Damage reduced.`);
+      const amount = clamp(me.heal, 0, 999);
+      if (amount <= 0) {
+        logToRoom(code, `✨ ${me.name} tried to heal, but heal is 0.`);
+      } else {
+        const before = me.hp;
+        me.hp = clamp(me.hp + amount, 0, me.maxHp);
+        const gained = me.hp - before;
+        logToRoom(code, `✨ ${me.name} heals +${gained} HP`);
       }
-      them.hp = Math.max(0, them.hp - dmg);
-      pushLog(roomObj, `${me.name} attacks for ${dmg} damage.`);
     } else {
-      return emitError(socket, "Unknown action.");
+      // attack default
+      // base damage: atk - defender.def/2
+      let dmg = Math.max(1, Math.round(me.atk - them.def / 2));
+
+      // apply defender shield if any
+      if (them.shield > 0) {
+        const blocked = Math.min(dmg, them.shield);
+        dmg -= blocked;
+        them.shield = Math.max(0, them.shield - blocked);
+        logToRoom(code, `🛡 ${them.name} blocks ${blocked} dmg (shield left ${them.shield})`);
+      }
+
+      // still at least 0
+      dmg = Math.max(0, dmg);
+      them.hp = clamp(them.hp - dmg, 0, them.maxHp);
+
+      logToRoom(code, `⚔️ ${me.name} attacks → ${them.name} takes ${dmg} dmg (HP ${them.hp}/${them.maxHp})`);
     }
 
-    // check win
-    if (them.hp <= 0) {
-      pushLog(roomObj, `🏆 ${me.name} wins!`);
-      roomObj.game.started = false; // stop further actions
-      emitState(roomCode);
+    endIfDead(r);
+
+    if (r.winner) {
+      const winPlayer = r.players[r.winner];
+      logToRoom(code, `🏆 Winner: ${winPlayer?.name || r.winner}`);
+      emitState(code);
       return;
     }
 
-    // next turn
-    roomObj.game.turn = otherSeat;
-    pushLog(roomObj, `Turn: ${roomObj.game.turn}`);
-    emitState(roomCode);
+    // switch turn
+    r.turn = oppSeat;
+    const next = r.players[r.turn];
+    logToRoom(code, `➡️ Turn: ${next.name} (${r.turn})`);
+
+    emitState(code);
   });
 
-  // Clean up on disconnect
   socket.on("disconnect", () => {
-    const roomCode = socket.data.room;
-    if (!roomCode) return;
+    // remove socket from any rooms/roles
+    for (const [code, r] of rooms.entries()) {
+      if (r.hostId === socket.id) r.hostId = null;
+      r.spectators.delete(socket.id);
 
-    const roomObj = rooms.get(roomCode);
-    if (!roomObj) return;
+      const s = seatOf(socket.id, r);
+      if (s) {
+        logToRoom(code, `👋 ${r.players[s]?.name || "A player"} left seat ${s}`);
+        r.players[s] = null;
+        r.started = false;
+        r.winner = null;
+      }
 
-    // remove from seats
-    if (roomObj.seats.A === socket.id) roomObj.seats.A = null;
-    if (roomObj.seats.B === socket.id) roomObj.seats.B = null;
+      emitState(code);
 
-    // remove spectator
-    roomObj.watchers.delete(socket.id);
-
-    // if host left -> close room
-    if (roomObj.hostId === socket.id) {
-      io.to(roomCode).emit("errorMsg", "Host left. Room closed.");
-      rooms.delete(roomCode);
-      return;
+      // optional: clean empty rooms
+      const hasAny =
+        r.hostId || r.players.A || r.players.B || (r.spectators && r.spectators.size > 0);
+      if (!hasAny) rooms.delete(code);
     }
-
-    pushLog(roomObj, `User disconnected (${socket.id}).`);
-    emitState(roomCode);
   });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log("Server listening on port", PORT);
+  console.log("Server running on port", PORT);
 });
