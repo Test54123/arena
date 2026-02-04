@@ -1,574 +1,512 @@
 const express = require("express");
 const http = require("http");
+const path = require("path");
 const { Server } = require("socket.io");
 
 const app = express();
-app.use(express.static("public"));
-
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: true } });
+const io = new Server(server);
 
-/**
- * Arena settings
- */
-const W = 12;
-const H = 12;
-const CORNER_ZONE = 3; // 3x3 in each corner
+app.use(express.static(path.join(__dirname, "public")));
 
-// ✅ UPDATED: 4 minutes total, mods every 1 minute
-const MATCH_DURATION_MS = 4 * 60 * 1000;
-const MOD_INTERVAL_MS = 1 * 60 * 1000;
+const PORT = process.env.PORT || 3000;
 
-const COOLDOWNS_BASE = {
-  attack: 1200,
-  heal: 8000,
-  defend: 8000,
-};
+// ---------- GAME CONFIG ----------
+const GRID_W = 4;
+const GRID_H = 4;
+const GAME_DURATION_MS = 4 * 60 * 1000; // 4 minutes
+const EVENT_INTERVAL_MS = 60 * 1000; // every minute
+const MAX_DEFEND = 6;
+const MAX_HEAL = 6;
 
-const rooms = new Map();
-
-function normRoom(x) {
-  return String(x || "").trim().toUpperCase();
+function clampInt(n, min, max, fallback) {
+  const x = Number.parseInt(n, 10);
+  if (Number.isNaN(x)) return fallback;
+  return Math.max(min, Math.min(max, x));
 }
-function normPass(x) {
-  return String(x || "").trim();
-}
-function clamp(n, min, max) {
-  n = Number(n);
-  if (Number.isNaN(n)) return min;
-  return Math.max(min, Math.min(max, n));
-}
+
 function now() {
   return Date.now();
 }
 
-function cornerToSpawn(corner) {
-  // TL: (0..2,0..2) TR: (9..11,0..2) BL: (0..2,9..11) BR: (9..11,9..11)
-  if (corner === "TL") return { x: 1, y: 1 };
-  if (corner === "TR") return { x: W - 2, y: 1 };
-  if (corner === "BL") return { x: 1, y: H - 2 };
-  return { x: W - 2, y: H - 2 }; // BR default
+function cornerType(x, y) {
+  // four corners: (0,0),(3,0),(0,3),(3,3) for 4x4
+  if (x === 0 && y === 0) return "NW";
+  if (x === GRID_W - 1 && y === 0) return "NE";
+  if (x === 0 && y === GRID_H - 1) return "SW";
+  if (x === GRID_W - 1 && y === GRID_H - 1) return "SE";
+  return null;
 }
 
-function newPlayer({ id, name, corner, stats }) {
-  const s = cornerToSpawn(corner);
+function manhattan(a, b) {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+function initialPlayerState(seat, name, stats) {
+  // Spawn at opposite corners
+  const pos = seat === "A" ? { x: 0, y: 0 } : { x: GRID_W - 1, y: GRID_H - 1 };
   return {
-    id,
-    name: String(name || "Player").slice(0, 20),
-    corner,
-    x: s.x,
-    y: s.y,
-    hpMax: clamp(stats?.hpMax ?? 100, 10, 9999),
-    hp: clamp(stats?.hpMax ?? 100, 1, 9999),
-    atk: clamp(stats?.atk ?? 20, 1, 999),
-    def: clamp(stats?.def ?? 8, 0, 999),
-    heal: clamp(stats?.heal ?? 15, 0, 999),
-    power: clamp(stats?.power ?? 10000, 0, 999999999),
-
-    // skill uses
-    healLeft: 6,
-    defendLeft: 6,
-
-    // status
-    shield: 0,
-    stink: false,
-    noDamageUntil: 0,
-    halfDamageUntil: 0,
-    skillSpeedMultUntil: 0, // <1 => faster, >1 => slower
-    powerPenaltyUntil: 0, // power reduced
-    cooldownMultUntil: 0, // affects cooldowns
+    seat,
+    name: name || (seat === "A" ? "Player A" : "Player B"),
+    connected: true,
+    // base stats
+    hpMax: clampInt(stats.hpMax, 10, 200, 50),
+    atk: clampInt(stats.atk, 1, 50, 10),
+    def: clampInt(stats.def, 0, 50, 5),
+    // runtime
+    hp: clampInt(stats.hpMax, 10, 200, 50),
+    pos,
+    // action counters
+    usedDefend: 0,
+    usedHeal: 0,
+    // defend flag (reduces next damage)
+    shield: 0, // number of hits left (we use 1)
   };
 }
 
-function dist(a, b) {
-  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); // manhattan
-}
+function safeStateForClients(room) {
+  // Don’t expose password, and only expose what UI needs
+  const r = rooms[room];
+  if (!r) return null;
 
-function roomPublic(room) {
   return {
-    code: room.code,
-    started: room.started,
-    endsAt: room.endsAt,
-    nextModAt: room.nextModAt,
-    tick: room.tick,
-    map: {
-      w: W,
-      h: H,
-      cornerZone: CORNER_ZONE,
-      windows: room.windows, // for tomato/rose animations
-    },
+    room,
+    grid: { w: GRID_W, h: GRID_H },
+    started: r.started,
+    startTime: r.startTime,
+    endTime: r.endTime,
+    timeLeftMs: r.started ? Math.max(0, r.endTime - now()) : null,
+    lastEvent: r.lastEvent || null,
+    log: r.log.slice(-60),
+    host: { connected: !!r.hostId },
     players: {
-      A: room.players.A
-        ? {
-            name: room.players.A.name,
-            corner: room.players.A.corner,
-            x: room.players.A.x,
-            y: room.players.A.y,
-            hp: room.players.A.hp,
-            hpMax: room.players.A.hpMax,
-            atk: room.players.A.atk,
-            def: room.players.A.def,
-            heal: room.players.A.heal,
-            power: room.players.A.power,
-            healLeft: room.players.A.healLeft,
-            defendLeft: room.players.A.defendLeft,
-            shield: room.players.A.shield,
-            stink: room.players.A.stink,
-          }
-        : null,
-      B: room.players.B
-        ? {
-            name: room.players.B.name,
-            corner: room.players.B.corner,
-            x: room.players.B.x,
-            y: room.players.B.y,
-            hp: room.players.B.hp,
-            hpMax: room.players.B.hpMax,
-            atk: room.players.B.atk,
-            def: room.players.B.def,
-            heal: room.players.B.heal,
-            power: room.players.B.power,
-            healLeft: room.players.B.healLeft,
-            defendLeft: room.players.B.defendLeft,
-            shield: room.players.B.shield,
-            stink: room.players.B.stink,
-          }
-        : null,
+      A: r.players.A ? {
+        name: r.players.A.name,
+        connected: r.players.A.connected,
+        hp: r.players.A.hp,
+        hpMax: r.players.A.hpMax,
+        atk: r.players.A.atk,
+        def: r.players.A.def,
+        pos: r.players.A.pos,
+        usedDefend: r.players.A.usedDefend,
+        usedHeal: r.players.A.usedHeal,
+        shield: r.players.A.shield,
+      } : null,
+      B: r.players.B ? {
+        name: r.players.B.name,
+        connected: r.players.B.connected,
+        hp: r.players.B.hp,
+        hpMax: r.players.B.hpMax,
+        atk: r.players.B.atk,
+        def: r.players.B.def,
+        pos: r.players.B.pos,
+        usedDefend: r.players.B.usedDefend,
+        usedHeal: r.players.B.usedHeal,
+        shield: r.players.B.shield,
+      } : null,
     },
-    winner: room.winner,
-    loser: room.loser,
-    stomp: room.stomp, // show gorilla stomp overlay
-    log: room.log.slice(-30),
   };
 }
 
 function emitState(room) {
-  io.to(room.code).emit("state", roomPublic(room));
+  const state = safeStateForClients(room);
+  if (!state) return;
+  io.to(room).emit("state", state);
 }
 
-function pushLog(room, msg) {
-  room.log.push(msg);
-  if (room.log.length > 120) room.log.shift();
-  io.to(room.code).emit("log", msg);
+function roomLog(room, msg) {
+  const r = rooms[room];
+  if (!r) return;
+  const stamp = new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  r.log.push(`[${stamp}] ${msg}`);
+  emitState(room);
 }
 
-function makeRoom(code, pass) {
-  // 4 “windows” positions for tomato/rose throws (purely visual)
-  const windows = [
-    { side: "L", x: 0, y: 3 },
-    { side: "L", x: 0, y: 8 },
-    { side: "R", x: W - 1, y: 3 },
-    { side: "R", x: W - 1, y: 8 },
+function ensureRoom(room, pass) {
+  if (!rooms[room]) {
+    rooms[room] = {
+      pass,
+      hostId: null,
+      players: { A: null, B: null },
+      started: false,
+      startTime: null,
+      endTime: null,
+      lastEvent: null,
+      log: [],
+      timers: {
+        event: null,
+        tick: null,
+      },
+    };
+  }
+}
+
+function stopTimers(room) {
+  const r = rooms[room];
+  if (!r) return;
+  if (r.timers.event) clearInterval(r.timers.event);
+  if (r.timers.tick) clearInterval(r.timers.tick);
+  r.timers.event = null;
+  r.timers.tick = null;
+}
+
+function resetGame(room) {
+  const r = rooms[room];
+  if (!r) return;
+
+  r.started = false;
+  r.startTime = null;
+  r.endTime = null;
+  r.lastEvent = null;
+  stopTimers(room);
+
+  // Respawn players (keep base stats and names)
+  ["A", "B"].forEach((seat) => {
+    if (r.players[seat]) {
+      const p = r.players[seat];
+      p.hp = p.hpMax;
+      p.usedDefend = 0;
+      p.usedHeal = 0;
+      p.shield = 0;
+      p.pos = seat === "A" ? { x: 0, y: 0 } : { x: GRID_W - 1, y: GRID_H - 1 };
+      p.connected = true;
+    }
+  });
+
+  roomLog(room, "🔄 Game reset.");
+}
+
+function endGame(room, reason) {
+  const r = rooms[room];
+  if (!r) return;
+  r.started = false;
+  stopTimers(room);
+  roomLog(room, `⏱️ Game ended: ${reason}`);
+}
+
+function applyMinuteEvent(room, minuteIndex) {
+  const r = rooms[room];
+  if (!r || !r.started) return;
+
+  // Simple random event each minute
+  const events = [
+    { id: "atkUpA", text: "✨ Player A +2 ATK", fn: () => { if (r.players.A) r.players.A.atk += 2; } },
+    { id: "atkUpB", text: "✨ Player B +2 ATK", fn: () => { if (r.players.B) r.players.B.atk += 2; } },
+    { id: "defUpA", text: "🛡️ Player A +2 DEF", fn: () => { if (r.players.A) r.players.A.def += 2; } },
+    { id: "defUpB", text: "🛡️ Player B +2 DEF", fn: () => { if (r.players.B) r.players.B.def += 2; } },
+    { id: "atkDownBoth", text: "💀 Both -1 ATK", fn: () => { if (r.players.A) r.players.A.atk = Math.max(1, r.players.A.atk - 1); if (r.players.B) r.players.B.atk = Math.max(1, r.players.B.atk - 1); } },
+    { id: "defDownBoth", text: "💀 Both -1 DEF", fn: () => { if (r.players.A) r.players.A.def = Math.max(0, r.players.A.def - 1); if (r.players.B) r.players.B.def = Math.max(0, r.players.B.def - 1); } },
+    { id: "healBoth", text: "🌿 Both heal +5 HP", fn: () => { if (r.players.A) r.players.A.hp = Math.min(r.players.A.hpMax, r.players.A.hp + 5); if (r.players.B) r.players.B.hp = Math.min(r.players.B.hpMax, r.players.B.hp + 5); } },
   ];
 
-  return {
-    code,
-    pass,
-    hostId: null,
-    started: false,
-    endsAt: 0,
-    nextModAt: 0,
-    tick: 0,
-    sockets: { A: null, B: null }, // socket ids
-    spectators: new Set(),
-    players: { A: null, B: null },
-    winner: null,
-    loser: null,
-    stomp: null,
-    windows,
-    log: [],
-  };
+  const pick = events[Math.floor(Math.random() * events.length)];
+  pick.fn();
+  r.lastEvent = { minute: minuteIndex, text: pick.text, id: pick.id };
+  roomLog(room, `⏳ Minute event #${minuteIndex}: ${pick.text}`);
 }
 
-function canMoveTo(x, y) {
-  if (x < 0 || y < 0 || x >= W || y >= H) return false;
-  return true;
-}
+function startGame(room) {
+  const r = rooms[room];
+  if (!r) return;
 
-function applyMod(room) {
-  // Every minute: pick random bonus or malus, apply to random player
-  const targetSeat = Math.random() < 0.5 ? "A" : "B";
-  const p = room.players[targetSeat];
-  if (!p) return;
-
-  const isBonus = Math.random() < 0.5;
-  const modType = Math.floor(Math.random() * 3) + 1; // 1..3
-
-  // choose a random window to throw from (visual)
-  const win = room.windows[Math.floor(Math.random() * room.windows.length)];
-  const throwType = isBonus ? "rose" : "tomato";
-  io.to(room.code).emit("throw", { throwType, from: win, toSeat: targetSeat });
-
-  const until = now() + MOD_INTERVAL_MS;
-
-  if (!isBonus) {
-    if (modType === 1) {
-      // -5000 power for 1 minute
-      p.powerPenaltyUntil = until;
-      pushLog(room, `🍅 MALUS: ${p.name} loses 5000 power for 1 minute!`);
-    } else if (modType === 2) {
-      // slower skills for 1 minute (cooldown multiplier)
-      p.cooldownMultUntil = until;
-      pushLog(room, `🍅 MALUS: ${p.name}'s skills recharge slower for 1 minute!`);
-    } else {
-      // stink clouds for 1 minute
-      p.stink = true;
-      pushLog(room, `🍅 MALUS: Stink clouds surround ${p.name} for 1 minute!`);
-      setTimeout(() => {
-        const r = rooms.get(room.code);
-        if (!r?.players[targetSeat]) return;
-        r.players[targetSeat].stink = false;
-        emitState(r);
-      }, MOD_INTERVAL_MS);
-    }
-  } else {
-    if (modType === 1) {
-      // random hits deal 0 damage for 1 minute (noDamageUntil)
-      p.noDamageUntil = until;
-      pushLog(room, `🌹 BONUS: ${p.name} gets a chance for NO DAMAGE on hits for 1 minute!`);
-    } else if (modType === 2) {
-      // faster skills for 1 minute
-      p.skillSpeedMultUntil = until;
-      pushLog(room, `🌹 BONUS: ${p.name}'s skills recharge faster for 1 minute!`);
-    } else {
-      // teleport away + half damage on being hit for 1 minute
-      p.halfDamageUntil = until;
-      pushLog(room, `🌹 BONUS: ${p.name} may teleport away and take HALF damage for 1 minute!`);
-    }
+  if (!r.players.A || !r.players.B) {
+    roomLog(room, "⚠️ Need both Player A and Player B to start.");
+    return;
   }
+
+  resetGame(room);
+  r.started = true;
+  r.startTime = now();
+  r.endTime = r.startTime + GAME_DURATION_MS;
+
+  roomLog(room, "🚀 Game started! Duration: 4:00");
+
+  let minuteIndex = 0;
+
+  // Minute events
+  r.timers.event = setInterval(() => {
+    if (!r.started) return;
+    minuteIndex += 1;
+    applyMinuteEvent(room, minuteIndex);
+  }, EVENT_INTERVAL_MS);
+
+  // Tick for ending the game
+  r.timers.tick = setInterval(() => {
+    if (!r.started) return;
+
+    // Win conditions
+    const A = r.players.A;
+    const B = r.players.B;
+    if (A && A.hp <= 0) return endGame(room, "Player B wins (Player A defeated) 🏆");
+    if (B && B.hp <= 0) return endGame(room, "Player A wins (Player B defeated) 🏆");
+
+    if (now() >= r.endTime) {
+      // decide by HP
+      const aHp = A ? A.hp : 0;
+      const bHp = B ? B.hp : 0;
+      if (aHp > bHp) endGame(room, "Time up — Player A wins 🏆");
+      else if (bHp > aHp) endGame(room, "Time up — Player B wins 🏆");
+      else endGame(room, "Time up — Draw 🤝");
+    }
+
+    emitState(room);
+  }, 500);
 
   emitState(room);
 }
 
-function effectiveCooldownMult(p) {
-  // slower skills malus overrides speed bonus for simplicity
-  const t = now();
-  if (p.cooldownMultUntil > t) return 1.5; // slower
-  if (p.skillSpeedMultUntil > t) return 0.6; // faster
-  return 1.0;
+// ---------- ROOMS ----------
+const rooms = {}; // roomCode -> roomState
+
+function validateRoomCode(room) {
+  // simple: letters/numbers/_- up to 20
+  if (typeof room !== "string") return null;
+  const r = room.trim();
+  if (!r) return null;
+  if (r.length > 20) return null;
+  if (!/^[A-Za-z0-9_-]+$/.test(r)) return null;
+  return r;
 }
 
-function effectivePower(p) {
-  const t = now();
-  if (p.powerPenaltyUntil > t) return Math.max(0, p.power - 5000);
-  return p.power;
+function checkPass(r, pass) {
+  return r.pass === pass;
 }
 
-function resolveAttack(room, attackerSeat) {
-  const a = room.players[attackerSeat];
-  const bSeat = attackerSeat === "A" ? "B" : "A";
-  const d = room.players[bSeat];
-  if (!a || !d) return;
+function socketRoleInRoom(socket, room) {
+  const r = rooms[room];
+  if (!r) return { role: "none", seat: null };
 
-  if (dist(a, d) > 1) {
-    pushLog(room, `⚠️ ${a.name} is too far to attack.`);
-    return;
-  }
-
-  // base damage
-  let dmg = Math.max(1, Math.round(a.atk - d.def / 2));
-
-  // defender shield reduces
-  if (d.shield > 0) {
-    const blocked = Math.min(dmg, d.shield);
-    dmg -= blocked;
-    d.shield = Math.max(0, d.shield - blocked);
-    pushLog(room, `🛡 ${d.name} blocks ${blocked} damage (shield left ${d.shield}).`);
-  }
-
-  // bonus: sometimes no damage (on attacker)
-  const t = now();
-  if (a.noDamageUntil > t && Math.random() < 0.35) {
-    dmg = 0;
-    pushLog(room, `🌹 ${a.name} triggers NO DAMAGE hit!`);
-  }
-
-  // half damage + teleport bonus (on defender)
-  if (d.halfDamageUntil > t) {
-    dmg = Math.round(dmg / 2);
-    // teleport chance
-    if (Math.random() < 0.35) {
-      // move defender to a random safe tile
-      const nx = clamp(d.x + (Math.random() < 0.5 ? -3 : 3), 1, W - 2);
-      const ny = clamp(d.y + (Math.random() < 0.5 ? -3 : 3), 1, H - 2);
-      d.x = nx;
-      d.y = ny;
-      pushLog(room, `✨ ${d.name} TELEPORTS away!`);
-    }
-  }
-
-  d.hp = Math.max(0, d.hp - dmg);
-  pushLog(room, `⚔️ ${a.name} hits ${d.name} for ${dmg} dmg. (${d.hp}/${d.hpMax})`);
-
-  if (d.hp <= 0) {
-    room.winner = attackerSeat;
-    room.loser = bSeat;
-    room.started = false;
-    room.stomp = { loserName: d.name, at: now() };
-    pushLog(room, `🏆 Winner: ${a.name}`);
-    pushLog(room, `🦍 Gorilla stomp: ${d.name} gets squashed!`);
-  }
+  if (r.hostId === socket.id) return { role: "host", seat: null };
+  if (r.players.A && r.players.A.socketId === socket.id) return { role: "player", seat: "A" };
+  if (r.players.B && r.players.B.socketId === socket.id) return { role: "player", seat: "B" };
+  return { role: "spectator", seat: null };
 }
 
-function movePlayer(room, seat, dir) {
-  const p = room.players[seat];
-  if (!p) return;
-  let nx = p.x, ny = p.y;
-  if (dir === "U") ny--;
-  if (dir === "D") ny++;
-  if (dir === "L") nx--;
-  if (dir === "R") nx++;
-
-  if (!canMoveTo(nx, ny)) return;
-
-  // prevent walking onto other player cell
-  const other = room.players[seat === "A" ? "B" : "A"];
-  if (other && other.x === nx && other.y === ny) return;
-
-  p.x = nx;
-  p.y = ny;
-}
-
+// ---------- SOCKETS ----------
 io.on("connection", (socket) => {
-  socket.data.room = null;
-  socket.data.role = null;
-  socket.data.seat = null;
-  socket.data.cooldowns = { attack: 0, heal: 0, defend: 0 };
+  socket.emit("hello", { ok: true });
 
-  socket.on("hostCreate", ({ room, pass }) => {
-    const code = normRoom(room);
-    const pw = normPass(pass);
-    if (!code) return socket.emit("errorMsg", "Missing room code.");
-    if (!pw) return socket.emit("errorMsg", "Missing password.");
+  socket.on("hostRoom", ({ room, pass }) => {
+    const code = validateRoomCode(room);
+    if (!code) return socket.emit("errorMsg", "Invalid room code.");
+    const p = String(pass || "").trim();
+    if (!p) return socket.emit("errorMsg", "Password required.");
 
-    let r = rooms.get(code);
-    if (!r) {
-      r = makeRoom(code, pw);
-      rooms.set(code, r);
+    // create or validate
+    if (!rooms[code]) {
+      ensureRoom(code, p);
+      roomLog(code, `🏠 Room created by host.`);
     } else {
-      if (r.pass !== pw) return socket.emit("errorMsg", "Wrong password.");
+      // existing room: require correct pass
+      if (!checkPass(rooms[code], p)) return socket.emit("errorMsg", "Wrong password.");
     }
 
-    r.hostId = socket.id;
+    // set host
+    rooms[code].hostId = socket.id;
+
     socket.join(code);
     socket.data.room = code;
-    socket.data.role = "host";
-
-    pushLog(r, `🎮 Host created/joined room ${code}`);
     socket.emit("role", { role: "host" });
-    emitState(r);
+    roomLog(code, `🎮 Host connected.`);
+    emitState(code);
   });
 
   socket.on("spectateRoom", ({ room, pass }) => {
-    const code = normRoom(room);
-    const pw = normPass(pass);
-    const r = rooms.get(code);
-    if (!r) return socket.emit("errorMsg", "Room not found.");
-    if (r.pass !== pw) return socket.emit("errorMsg", "Wrong password.");
+    const code = validateRoomCode(room);
+    if (!code) return socket.emit("errorMsg", "Invalid room code.");
+    const r = rooms[code];
+    if (!r) return socket.emit("errorMsg", "Room does not exist.");
+    if (!checkPass(r, String(pass || "").trim())) return socket.emit("errorMsg", "Wrong password.");
 
-    r.spectators.add(socket.id);
     socket.join(code);
     socket.data.room = code;
-    socket.data.role = "spectator";
-
     socket.emit("role", { role: "spectator" });
-    pushLog(r, `👀 Spectator joined ${code}`);
-    emitState(r);
+    roomLog(code, `👀 Spectator joined.`);
+    emitState(code);
   });
 
-  socket.on("joinSeat", ({ room, pass, seat, name, corner, stats }) => {
-    const code = normRoom(room);
-    const pw = normPass(pass);
-    const r = rooms.get(code);
-    if (!r) return socket.emit("errorMsg", "Room not found.");
-    if (r.pass !== pw) return socket.emit("errorMsg", "Wrong password.");
+  socket.on("joinSeat", ({ room, pass, seat, name, stats }) => {
+    const code = validateRoomCode(room);
+    if (!code) return socket.emit("errorMsg", "Invalid room code.");
+    const r = rooms[code];
+    if (!r) return socket.emit("errorMsg", "Room does not exist.");
+    if (!checkPass(r, String(pass || "").trim())) return socket.emit("errorMsg", "Wrong password.");
+    if (seat !== "A" && seat !== "B") return socket.emit("errorMsg", "Seat must be A or B.");
 
-    const s = seat === "B" ? "B" : "A";
-    const c = ["TL","TR","BL","BR"].includes(corner) ? corner : (s === "A" ? "TL" : "BR");
-
-    // seat taken by other?
-    if (r.sockets[s] && r.sockets[s] !== socket.id) {
-      return socket.emit("errorMsg", `Seat ${s} is taken.`);
+    // If seat taken by someone else, block
+    if (r.players[seat] && r.players[seat].socketId && r.players[seat].socketId !== socket.id) {
+      return socket.emit("errorMsg", `Seat ${seat} already taken.`);
     }
 
-    r.sockets[s] = socket.id;
-    r.players[s] = newPlayer({ id: socket.id, name, corner: c, stats },);
+    const cleanName = String(name || "").trim().slice(0, 20) || (seat === "A" ? "PlayerA" : "PlayerB");
+    const st = stats || {};
+    const player = r.players[seat]
+      ? r.players[seat]
+      : initialPlayerState(seat, cleanName, st);
+
+    // If player existed, update base stats + name (only if game not started)
+    if (!r.started) {
+      player.name = cleanName;
+      player.hpMax = clampInt(st.hpMax, 10, 200, player.hpMax);
+      player.atk = clampInt(st.atk, 1, 50, player.atk);
+      player.def = clampInt(st.def, 0, 50, player.def);
+      player.hp = player.hpMax;
+    }
+
+    player.socketId = socket.id;
+    player.connected = true;
+    r.players[seat] = player;
 
     socket.join(code);
     socket.data.room = code;
-    socket.data.role = "player";
-    socket.data.seat = s;
-    socket.data.cooldowns = { attack: 0, heal: 0, defend: 0 };
 
-    socket.emit("role", { role: "player", seat: s });
-    pushLog(r, `🪑 ${r.players[s].name} joined seat ${s} (${c})`);
-    emitState(r);
+    socket.emit("role", { role: "player", seat });
+    roomLog(code, `🧍 Player ${seat} joined as "${player.name}".`);
+    emitState(code);
   });
 
-  socket.on("startMatch", ({ room, pass }) => {
-    const code = normRoom(room);
-    const pw = normPass(pass);
-    const r = rooms.get(code);
-    if (!r) return socket.emit("errorMsg", "Room not found.");
-    if (r.pass !== pw) return socket.emit("errorMsg", "Wrong password.");
-    if (r.hostId !== socket.id) return socket.emit("errorMsg", "Only host can start.");
+  socket.on("hostStartReset", ({ room, pass, action }) => {
+    const code = validateRoomCode(room);
+    if (!code) return;
+    const r = rooms[code];
+    if (!r) return;
+    if (!checkPass(r, String(pass || "").trim())) return;
+    if (r.hostId !== socket.id) return socket.emit("errorMsg", "Only host can do that.");
 
-    if (!r.players.A || !r.players.B) return socket.emit("errorMsg", "Need Player A and B.");
-
-    // reset
-    for (const seat of ["A","B"]) {
-      const p = r.players[seat];
-      p.hp = p.hpMax;
-      p.shield = 0;
-      p.stink = false;
-      p.healLeft = 6;
-      p.defendLeft = 6;
-      p.noDamageUntil = 0;
-      p.halfDamageUntil = 0;
-      p.skillSpeedMultUntil = 0;
-      p.powerPenaltyUntil = 0;
-      p.cooldownMultUntil = 0;
-      const sp = cornerToSpawn(p.corner);
-      p.x = sp.x; p.y = sp.y;
+    if (action === "start") {
+      startGame(code);
+    } else if (action === "reset") {
+      resetGame(code);
+      emitState(code);
     }
-
-    r.winner = null;
-    r.loser = null;
-    r.stomp = null;
-    r.started = true;
-    r.endsAt = now() + MATCH_DURATION_MS;
-    r.nextModAt = now() + MOD_INTERVAL_MS;
-    r.tick = 0;
-
-    pushLog(r, `🏁 Match started! Duration: 4 minutes. Mods every 1 minute.`);
-    emitState(r);
   });
 
-  socket.on("move", ({ room, dir }) => {
-    const code = normRoom(room);
-    const r = rooms.get(code);
-    if (!r || !r.started) return;
-    if (socket.data.role !== "player") return;
-    const seat = socket.data.seat;
-    if (!seat) return;
+  socket.on("move", ({ room, pass, dir }) => {
+    const code = validateRoomCode(room);
+    if (!code) return;
+    const r = rooms[code];
+    if (!r) return;
+    if (!checkPass(r, String(pass || "").trim())) return;
 
-    movePlayer(r, seat, dir);
-    emitState(r);
-  });
+    const role = socketRoleInRoom(socket, code);
+    if (role.role !== "player") return;
 
-  socket.on("action", ({ room, type }) => {
-    const code = normRoom(room);
-    const r = rooms.get(code);
-    if (!r || !r.started) return;
-    if (socket.data.role !== "player") return;
-    const seat = socket.data.seat;
-    if (!seat) return;
+    if (!r.started) return socket.emit("errorMsg", "Game not started.");
 
-    const p = r.players[seat];
+    const p = r.players[role.seat];
     if (!p) return;
 
-    const t = now();
-    const cdMult = effectiveCooldownMult(p);
+    const delta = {
+      up: { x: 0, y: -1 },
+      down: { x: 0, y: 1 },
+      left: { x: -1, y: 0 },
+      right: { x: 1, y: 0 },
+    }[dir];
 
-    if (type === "attack") {
-      const nextOk = socket.data.cooldowns.attack || 0;
-      if (t < nextOk) return;
-      socket.data.cooldowns.attack = t + Math.round(COOLDOWNS_BASE.attack * cdMult);
-      resolveAttack(r, seat);
-      emitState(r);
+    if (!delta) return;
+
+    const nx = p.pos.x + delta.x;
+    const ny = p.pos.y + delta.y;
+
+    if (nx < 0 || nx >= GRID_W || ny < 0 || ny >= GRID_H) return;
+
+    // prevent overlapping (optional)
+    const otherSeat = role.seat === "A" ? "B" : "A";
+    const o = r.players[otherSeat];
+    if (o && o.pos.x === nx && o.pos.y === ny) {
+      return socket.emit("errorMsg", "Tile occupied.");
+    }
+
+    p.pos = { x: nx, y: ny };
+    const corner = cornerType(nx, ny);
+    if (corner) roomLog(code, `📍 ${p.name} reached corner ${corner}.`);
+
+    emitState(code);
+  });
+
+  socket.on("action", ({ room, pass, type }) => {
+    const code = validateRoomCode(room);
+    if (!code) return;
+    const r = rooms[code];
+    if (!r) return;
+    if (!checkPass(r, String(pass || "").trim())) return;
+
+    const role = socketRoleInRoom(socket, code);
+    if (role.role !== "player") return;
+
+    if (!r.started) return socket.emit("errorMsg", "Game not started.");
+
+    const me = r.players[role.seat];
+    const them = r.players[role.seat === "A" ? "B" : "A"];
+    if (!me || !them) return;
+
+    if (type === "defend") {
+      if (me.usedDefend >= MAX_DEFEND) return socket.emit("errorMsg", "Defend limit reached.");
+      me.usedDefend += 1;
+      me.shield = 1; // reduce next hit
+      roomLog(code, `🛡️ ${me.name} uses DEFEND (${me.usedDefend}/${MAX_DEFEND}).`);
+      return emitState(code);
     }
 
     if (type === "heal") {
-      const nextOk = socket.data.cooldowns.heal || 0;
-      if (t < nextOk) return;
-      if (p.healLeft <= 0) {
-        pushLog(r, `⚠️ ${p.name} has no HEAL uses left.`);
-        return;
-      }
-      p.healLeft -= 1;
-      socket.data.cooldowns.heal = t + Math.round(COOLDOWNS_BASE.heal * cdMult);
-
-      const amount = clamp(p.heal, 0, 999);
-      p.hp = Math.min(p.hpMax, p.hp + amount);
-      pushLog(r, `✨ ${p.name} heals +${amount} (uses left ${p.healLeft}).`);
-      emitState(r);
+      if (me.usedHeal >= MAX_HEAL) return socket.emit("errorMsg", "Heal limit reached.");
+      me.usedHeal += 1;
+      const amount = 10;
+      me.hp = Math.min(me.hpMax, me.hp + amount);
+      roomLog(code, `✨ ${me.name} heals +${amount} (${me.usedHeal}/${MAX_HEAL}).`);
+      return emitState(code);
     }
 
-    if (type === "defend") {
-      const nextOk = socket.data.cooldowns.defend || 0;
-      if (t < nextOk) return;
-      if (p.defendLeft <= 0) {
-        pushLog(r, `⚠️ ${p.name} has no DEFEND uses left.`);
-        return;
-      }
-      p.defendLeft -= 1;
-      socket.data.cooldowns.defend = t + Math.round(COOLDOWNS_BASE.defend * cdMult);
+    if (type === "attack") {
+      // must be adjacent (distance 1)
+      if (manhattan(me.pos, them.pos) !== 1) return socket.emit("errorMsg", "You must be adjacent to attack.");
 
-      p.shield += clamp(p.def + 10, 5, 200);
-      pushLog(r, `🛡 ${p.name} defends (uses left ${p.defendLeft}).`);
-      emitState(r);
+      let dmg = Math.max(1, me.atk - them.def);
+      if (them.shield > 0) {
+        dmg = Math.max(1, Math.floor(dmg / 2));
+        them.shield = 0;
+        roomLog(code, `🛡️ ${them.name}'s shield reduces damage!`);
+      }
+
+      them.hp -= dmg;
+      roomLog(code, `⚔️ ${me.name} attacks ${them.name} for ${dmg} damage.`);
+      if (them.hp <= 0) {
+        them.hp = 0;
+        endGame(code, `${me.name} wins 🏆`);
+      }
+      return emitState(code);
     }
+  });
+
+  socket.on("requestState", ({ room }) => {
+    const code = validateRoomCode(room);
+    if (!code) return;
+    emitState(code);
   });
 
   socket.on("disconnect", () => {
-    const code = socket.data.room;
-    if (!code) return;
-    const r = rooms.get(code);
-    if (!r) return;
+    const room = socket.data.room;
+    if (!room || !rooms[room]) return;
 
-    if (r.hostId === socket.id) r.hostId = null;
-    r.spectators.delete(socket.id);
+    const r = rooms[room];
 
-    for (const seat of ["A","B"]) {
-      if (r.sockets[seat] === socket.id) {
-        r.sockets[seat] = null;
-        r.players[seat] = null;
-      }
+    if (r.hostId === socket.id) {
+      r.hostId = null;
+      roomLog(room, "🎮 Host disconnected.");
     }
-    emitState(r);
+
+    ["A", "B"].forEach((seat) => {
+      if (r.players[seat] && r.players[seat].socketId === socket.id) {
+        r.players[seat].connected = false;
+        r.players[seat].socketId = null;
+        roomLog(room, `🧍 Player ${seat} disconnected.`);
+      }
+    });
+
+    emitState(room);
   });
 });
 
-/**
- * Timer loop for each room: handle mods and match end.
- * We keep it very light.
- */
-setInterval(() => {
-  const t = now();
-  for (const r of rooms.values()) {
-    if (!r.started) continue;
-    r.tick++;
-
-    // apply mod each interval
-    if (r.nextModAt && t >= r.nextModAt) {
-      applyMod(r);
-      r.nextModAt = t + MOD_INTERVAL_MS;
-    }
-
-    // end match
-    if (r.endsAt && t >= r.endsAt) {
-      r.started = false;
-
-      // decide winner by remaining HP, tie by power
-      const A = r.players.A;
-      const B = r.players.B;
-      if (A && B) {
-        if (A.hp > B.hp) { r.winner = "A"; r.loser = "B"; }
-        else if (B.hp > A.hp) { r.winner = "B"; r.loser = "A"; }
-        else {
-          const ap = effectivePower(A);
-          const bp = effectivePower(B);
-          if (ap >= bp) { r.winner = "A"; r.loser = "B"; }
-          else { r.winner = "B"; r.loser = "A"; }
-        }
-        r.stomp = { loserName: r.players[r.loser].name, at: t };
-        pushLog(r, `⏱️ Time! Winner: ${r.players[r.winner].name} — Loser stomped: ${r.players[r.loser].name}`);
-      }
-      emitState(r);
-    }
-  }
-}, 250);
-
 server.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log("Server listening on", PORT);
 });
