@@ -1,10 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Arena</title>
-
   <style>
     body{
       font-family: monospace;
@@ -12,14 +11,16 @@
       padding:14px;
       margin:0;
     }
-    h2{ margin: 0 0 12px 0; }
+    h2{ margin: 6px 0 12px; }
+    .wrap{ max-width: 900px; margin: 0 auto; }
     .card{
       background:#fffdf1;
       border:2px solid #6a7b5f;
       border-radius:12px;
       padding:12px;
-      margin:0 0 14px 0;
+      margin-bottom:14px;
     }
+    label{ display:block; margin-top:8px; }
     input,select,button{
       width:100%;
       padding:10px;
@@ -29,539 +30,385 @@
       font-size:16px;
       box-sizing:border-box;
     }
+    .row{ display:flex; gap:10px; }
+    .row > *{ flex:1; }
     button{
       cursor:pointer;
       background:#eee;
       font-weight:bold;
-      user-select:none;
-      -webkit-user-select:none;
-      -webkit-tap-highlight-color: transparent;
     }
-    button:disabled{ opacity:0.45; cursor:not-allowed; }
-    .row{
+    button:disabled{ opacity:0.4; cursor:not-allowed; }
+
+    /* board */
+    .boardWrap{ display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start; }
+    .board{
+      width: 300px;
+      height: 300px;
+      border:2px solid #6a7b5f;
+      border-radius:12px;
+      background:#f3f1df;
+      display:grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+      overflow:hidden;
+    }
+    .cell{
+      border:1px solid rgba(106,123,95,0.35);
       display:flex;
-      gap:10px;
+      align-items:center;
+      justify-content:center;
+      position:relative;
+      user-select:none;
     }
-    .row > *{ flex:1; }
-    .pill{
-      display:inline-block;
-      border:1px solid #6a7b5f;
-      border-radius:999px;
-      padding:6px 10px;
-      background:#eef2e7;
-      margin-top:8px;
-      margin-right:6px;
+    .corner{
+      background: rgba(106,123,95,0.10);
     }
+    .unit{
+      width: 70%;
+      height: 70%;
+      border-radius: 10px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:700;
+      color:#fff;
+      box-shadow: 0 2px 0 rgba(0,0,0,0.15);
+    }
+    .unitA{ background:#2b6cff; }
+    .unitB{ background:#ff3b3b; }
+
+    /* dpad */
+    .dpad{
+      display:grid;
+      grid-template-columns: 60px 60px 60px;
+      grid-template-rows: 60px 60px 60px;
+      gap:8px;
+      justify-content:center;
+      margin-top:10px;
+    }
+    .dpad button{ height:60px; width:60px; }
+    .dpad .empty{ visibility:hidden; }
+
     #log{
       background:black;
       color:#00ff00;
       padding:10px;
       border-radius:10px;
-      min-height:140px;
+      min-height:160px;
       white-space:pre-wrap;
       font-size:14px;
-      max-height:220px;
       overflow:auto;
     }
-
-    /* Arena */
-    #arenaWrap{
-      position:relative;
+    .pillRow{ display:flex; gap:10px; flex-wrap:wrap; }
+    .pill{
+      padding:6px 10px;
+      border:1px solid #6a7b5f;
+      border-radius:999px;
+      background:#f3f1df;
+      display:inline-block;
     }
-    #arena{
-      width:100%;
-      max-width:520px;
-      height:auto;
-      border:2px solid #6a7b5f;
-      border-radius:12px;
-      background:#cfd8c7;
-      display:block;
-      margin: 0 auto;
-      touch-action: none;
-    }
-
-    /* Overlay gorilla stomp */
-    #stompOverlay{
-      position:absolute;
-      inset:0;
-      display:none;
-      align-items:center;
-      justify-content:center;
-      pointer-events:none;
-      background: rgba(0,0,0,0.35);
-      border-radius:12px;
-    }
-    #stompBox{
-      background:#fffdf1;
-      border:3px solid #6a7b5f;
-      border-radius:14px;
-      padding:14px;
-      text-align:center;
-      width: 88%;
-      max-width: 320px;
-    }
-    #stompBox .big{ font-size:18px; font-weight:bold; }
-    #stompBox .sm{ font-size:13px; }
-
-    /* Controls */
-    .controls{
-      display:flex;
-      gap:12px;
-      flex-wrap:wrap;
-      align-items:center;
-      justify-content:center;
-      margin-top:10px;
-    }
-    .dpad{
-      width: 210px;
-      display:grid;
-      grid-template-columns: 70px 70px 70px;
-      grid-template-rows: 70px 70px 70px;
-      gap:4px;
-    }
-    .dpad button{
-      height:70px;
-      font-size:24px;
-    }
-    .dpad .empty{
-      visibility:hidden;
-    }
-    .skillBtns{
-      width: 220px;
-      display:flex;
-      flex-direction:column;
-      gap:8px;
-    }
-    .skillBtns button{
-      height:56px;
-      font-size:18px;
-    }
-
-    .small{
-      font-size:13px;
-      opacity:0.9;
-      margin-top:6px;
-    }
+    .small{ font-size: 13px; opacity: 0.9; }
   </style>
 </head>
-
 <body>
+<div class="wrap">
 
-<h2>🏰 Arena</h2>
+  <h2>🏰 Arena</h2>
 
-<div class="card">
-  <h3>Room</h3>
-  Room Code:
-  <input id="room" value="ARENA" autocomplete="off"/>
+  <div class="card">
+    <h3>Room</h3>
 
-  Password:
-  <input id="pass" value="rose" autocomplete="off"/>
+    <label>Room Code</label>
+    <input id="room" value="ARENA"/>
 
-  <div class="row">
-    <button onclick="hostCreate()">Host (Create)</button>
-    <button onclick="spectate()">Spectate (Watch)</button>
-  </div>
+    <label>Password</label>
+    <input id="pass" value="rose"/>
 
-  <hr style="border:none;border-top:1px dashed #6a7b5f;margin:12px 0"/>
-
-  <h3>Join as Player</h3>
-
-  Name:
-  <input id="pname" value="Player" maxlength="20"/>
-
-  Seat:
-  <select id="seat">
-    <option value="A">Player A</option>
-    <option value="B">Player B</option>
-  </select>
-
-  Start corner:
-  <select id="corner">
-    <option value="TL">Top Left</option>
-    <option value="TR">Top Right</option>
-    <option value="BL">Bottom Left</option>
-    <option value="BR">Bottom Right</option>
-  </select>
-
-  <div class="row">
-    <div>
-      HP Max:
-      <input id="hpMax" type="number" value="100" min="10" max="9999"/>
+    <div class="row" style="margin-top:10px;">
+      <button id="btnCreate" onclick="createRoom()">Host (Create)</button>
+      <button id="btnSpectate" onclick="joinSpectator()">Spectate</button>
     </div>
-    <div>
-      Power:
-      <input id="power" type="number" value="10000" min="0" max="999999999"/>
+
+    <hr/>
+
+    <h3>Join as Player</h3>
+
+    <label>Your name</label>
+    <input id="myName" value="Player"/>
+
+    <label>Seat</label>
+    <select id="seat">
+      <option value="A">Player A</option>
+      <option value="B">Player B</option>
+    </select>
+
+    <button onclick="joinPlayer()">Join Player Seat</button>
+
+    <div class="pillRow" style="margin-top:10px;">
+      <div class="pill">Status: <span id="status">not connected</span></div>
+      <div class="pill">Role: <span id="role">-</span></div>
     </div>
-  </div>
-  <div class="row">
-    <div>
-      ATK:
-      <input id="atk" type="number" value="20" min="1" max="999"/>
-    </div>
-    <div>
-      DEF:
-      <input id="def" type="number" value="8" min="0" max="999"/>
-    </div>
-  </div>
-  <div class="row">
-    <div>
-      HEAL:
-      <input id="heal" type="number" value="15" min="0" max="999"/>
-    </div>
-    <div>
-      (Heal/Defend uses are fixed)
-      <input disabled value="Heal 6× / Defend 6×"/>
+
+    <div class="small" style="margin-top:8px;">
+      ✅ Handy-Steuerung: D-Pad (unten). PC: Pfeiltasten.
     </div>
   </div>
 
-  <button onclick="joinSeat()">Join Seat</button>
+  <div class="card">
+    <h3>Game</h3>
+    <div id="gameStatus">Not started.</div>
 
-  <div>
-    <span class="pill">Status: <span id="status">disconnected</span></span>
-    <span class="pill">Role: <span id="role">-</span></span>
-  </div>
+    <div class="boardWrap" style="margin-top:10px;">
+      <div>
+        <div class="board" id="board"></div>
 
-  <div class="small">
-    Movement on phone: use the arrow buttons. Tap = 1 step. Hold = keep moving.
-  </div>
-</div>
+        <div id="dpadWrap" style="display:none;">
+          <div class="dpad">
+            <button class="empty">.</button>
+            <button onclick="move('up')">⬆️</button>
+            <button class="empty">.</button>
 
-<div class="card">
-  <h3>Arena</h3>
+            <button onclick="move('left')">⬅️</button>
+            <button class="empty">.</button>
+            <button onclick="move('right')">➡️</button>
 
-  <div id="arenaWrap">
-    <canvas id="arena" width="600" height="420"></canvas>
+            <button class="empty">.</button>
+            <button onclick="move('down')">⬇️</button>
+            <button class="empty">.</button>
+          </div>
+        </div>
+      </div>
 
-    <div id="stompOverlay">
-      <div id="stompBox">
-        <div class="big">🦍 Gorilla Stomp!</div>
-        <div id="stompName" class="big" style="margin-top:6px">-</div>
-        <div class="sm" style="margin-top:8px">RIP. Better stats next time. 😄</div>
+      <div style="flex:1; min-width:260px;">
+        <h4>Host Controls</h4>
+        <div class="row">
+          <input id="nameA" placeholder="Player A name (optional)"/>
+          <input id="nameB" placeholder="Player B name (optional)"/>
+        </div>
+
+        <div class="row">
+          <input id="aHp" placeholder="A HP (default 30)" inputmode="numeric"/>
+          <input id="bHp" placeholder="B HP (default 30)" inputmode="numeric"/>
+        </div>
+        <div class="row">
+          <input id="aAtk" placeholder="A ATK (default 5)" inputmode="numeric"/>
+          <input id="bAtk" placeholder="B ATK (default 5)" inputmode="numeric"/>
+        </div>
+        <div class="row">
+          <input id="aDef" placeholder="A DEF (default 2)" inputmode="numeric"/>
+          <input id="bDef" placeholder="B DEF (default 2)" inputmode="numeric"/>
+        </div>
+        <div class="row">
+          <input id="aHeal" placeholder="A HEAL (default 6)" inputmode="numeric"/>
+          <input id="bHeal" placeholder="B HEAL (default 6)" inputmode="numeric"/>
+        </div>
+
+        <button id="btnStart" onclick="hostStart()" disabled>Start / Reset Game (Host)</button>
+
+        <hr/>
+
+        <h4>Actions (Players only)</h4>
+        <div class="row">
+          <button id="btnAttack" onclick="action('attack')" disabled>⚔️ Attack</button>
+          <button id="btnDefend" onclick="action('defend')" disabled>🛡️ Defend</button>
+          <button id="btnHeal" onclick="action('heal')" disabled>✨ Heal</button>
+        </div>
+
+        <div class="small" style="margin-top:8px;">
+          Heal & Defend sind pro Spieler auf <b>6×</b> begrenzt.
+        </div>
       </div>
     </div>
   </div>
 
-  <div class="controls">
-    <div class="dpad">
-      <button class="empty"></button>
-      <button id="btnU">⬆️</button>
-      <button class="empty"></button>
-
-      <button id="btnL">⬅️</button>
-      <button class="empty"></button>
-      <button id="btnR">➡️</button>
-
-      <button class="empty"></button>
-      <button id="btnD">⬇️</button>
-      <button class="empty"></button>
-    </div>
-
-    <div class="skillBtns">
-      <button id="btnAttack">⚔️ Attack</button>
-      <button id="btnHeal">✨ Heal (6×)</button>
-      <button id="btnDefend">🛡 Defend (6×)</button>
-      <button id="btnStart">🏁 Start Match (Host)</button>
-    </div>
+  <div class="card">
+    <h3>Battle Log</h3>
+    <div id="log">Not connected.</div>
   </div>
 
-  <div class="small">
-    Tip: Attack only works when you are next to the enemy (distance 1).
-  </div>
-</div>
-
-<div class="card">
-  <h3>Battle Log</h3>
-  <div id="log">Not connected.</div>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
   const socket = io();
 
-  // Local UI state
+  let myRoom = null;
+  let myRole = "-"; // host | A | B | spectator | -
   let lastState = null;
-  let myRole = "-";
-  let mySeat = null;
 
-  // Movement: hold-to-move
-  let moveInterval = null;
-  const HOLD_MS = 140;
+  function $(id){ return document.getElementById(id); }
 
-  function roomVal(){ return document.getElementById("room").value.trim().toUpperCase(); }
-  function passVal(){ return document.getElementById("pass").value.trim(); }
-
-  function setRole(role, seat){
-    myRole = role || "-";
-    mySeat = seat || null;
-    document.getElementById("role").textContent = role + (seat ? (" ("+seat+")") : "");
-  }
+  function setStatus(t){ $("status").textContent = t; }
+  function setRole(t){ myRole = t; $("role").textContent = t; }
 
   function log(msg){
-    const box = document.getElementById("log");
-    if (box.textContent === "Not connected.") box.textContent = "";
-    box.textContent += (box.textContent ? "\n" : "") + msg;
+    const box = $("log");
+    box.textContent += "\\n" + msg;
     box.scrollTop = box.scrollHeight;
   }
 
-  socket.on("connect", ()=>{
-    document.getElementById("status").textContent = "connected";
-    document.getElementById("log").textContent = "";
+  socket.on("connect", () => {
+    $("log").textContent = "";
+    setStatus("connected");
     log("✅ Connected to server!");
   });
 
-  socket.on("disconnect", ()=>{
-    document.getElementById("status").textContent = "disconnected";
+  socket.on("disconnect", () => {
+    setStatus("disconnected");
     log("❌ Disconnected.");
   });
 
-  socket.on("errorMsg", (msg)=>{
-    log("⚠️ " + msg);
-    alert(msg);
+  socket.on("errorMsg", (m) => {
+    alert(m);
+    log("❌ " + m);
   });
 
-  socket.on("role", ({ role, seat })=>{
-    setRole(role, seat);
+  socket.on("role", ({ role, room }) => {
+    myRoom = room;
+    setRole(role);
+    updateUI();
   });
 
-  socket.on("log", (msg)=> log(msg));
+  socket.on("log", (line) => log(line));
 
-  // Tomate/Rose throw visual event
-  let lastThrow = null;
-  socket.on("throw", (data)=>{
-    // { throwType, from, toSeat }
-    lastThrow = { ...data, t: Date.now() };
+  socket.on("state", (st) => {
+    lastState = st;
+    renderState(st);
   });
 
-  // State from server
-  socket.on("state", (state)=>{
-    lastState = state;
-    draw();
-    // stomp overlay
-    if (state.stomp && state.stomp.loserName) {
-      const overlay = document.getElementById("stompOverlay");
-      document.getElementById("stompName").textContent = state.stomp.loserName;
-      overlay.style.display = "flex";
-      // hide after a bit
-      setTimeout(()=> { overlay.style.display = "none"; }, 2600);
-    }
-    // update buttons text for uses
-    const A = state.players.A;
-    const B = state.players.B;
-    const me = (mySeat === "A") ? A : (mySeat === "B") ? B : null;
-    if (me) {
-      document.getElementById("btnHeal").textContent = `✨ Heal (${me.healLeft}×)`;
-      document.getElementById("btnDefend").textContent = `🛡 Defend (${me.defendLeft}×)`;
-    } else {
-      document.getElementById("btnHeal").textContent = `✨ Heal (6×)`;
-      document.getElementById("btnDefend").textContent = `🛡 Defend (6×)`;
-    }
-  });
-
-  // ---- Actions
-  function hostCreate(){
-    socket.emit("hostCreate", { room: roomVal(), pass: passVal() });
-    log("🎮 Hosting room: " + roomVal());
+  function createRoom(){
+    const room = $("room").value.trim().toUpperCase();
+    const pass = $("pass").value.trim();
+    socket.emit("createRoom", { room, pass });
   }
 
-  function spectate(){
-    socket.emit("spectateRoom", { room: roomVal(), pass: passVal() });
-    log("👀 Watching room: " + roomVal());
+  function joinPlayer(){
+    const room = $("room").value.trim().toUpperCase();
+    const pass = $("pass").value.trim();
+    const role = $("seat").value;
+    const name = $("myName").value.trim() || "Player";
+    socket.emit("joinRoom", { room, pass, role, name });
   }
 
-  function joinSeat(){
-    const seat = document.getElementById("seat").value;
-    const corner = document.getElementById("corner").value;
-    const name = document.getElementById("pname").value.trim();
-    const hpMax = Number(document.getElementById("hpMax").value);
-    const atk = Number(document.getElementById("atk").value);
-    const def = Number(document.getElementById("def").value);
-    const heal = Number(document.getElementById("heal").value);
-    const power = Number(document.getElementById("power").value);
-
-    socket.emit("joinSeat", {
-      room: roomVal(),
-      pass: passVal(),
-      seat,
-      name,
-      corner,
-      stats: { hpMax, atk, def, heal, power }
-    });
-    log(`🪑 Joining seat ${seat} (${corner})...`);
+  function joinSpectator(){
+    const room = $("room").value.trim().toUpperCase();
+    const pass = $("pass").value.trim();
+    socket.emit("joinRoom", { room, pass, role: "spectator", name: "Spectator" });
   }
 
-  function startMatch(){
-    socket.emit("startMatch", { room: roomVal(), pass: passVal() });
+  function hostStart(){
+    const room = $("room").value.trim().toUpperCase();
+    const pass = $("pass").value.trim();
+
+    const settings = {
+      aHp: $("aHp").value, bHp: $("bHp").value,
+      aAtk: $("aAtk").value, bAtk: $("bAtk").value,
+      aDef: $("aDef").value, bDef: $("bDef").value,
+      aHeal: $("aHeal").value, bHeal: $("bHeal").value,
+    };
+    const names = {
+      A: $("nameA").value.trim(),
+      B: $("nameB").value.trim(),
+    };
+
+    socket.emit("hostStart", { room, pass, settings, names });
   }
 
   function move(dir){
-    socket.emit("move", { room: roomVal(), dir });
+    if (!myRoom) return;
+    if (myRole !== "A" && myRole !== "B") return;
+    socket.emit("move", { room: myRoom, side: myRole, dir });
   }
 
   function action(type){
-    socket.emit("action", { room: roomVal(), type });
+    if (!myRoom) return;
+    if (myRole !== "A" && myRole !== "B") return;
+    socket.emit("action", { room: myRoom, side: myRole, type });
   }
 
-  // ---- Movement buttons (tap = step, hold = keep moving)
-  function bindHold(btnId, dir){
-    const btn = document.getElementById(btnId);
+  // PC controls (arrow keys)
+  window.addEventListener("keydown", (e) => {
+    if (myRole !== "A" && myRole !== "B") return;
+    if (e.key === "ArrowUp") move("up");
+    if (e.key === "ArrowDown") move("down");
+    if (e.key === "ArrowLeft") move("left");
+    if (e.key === "ArrowRight") move("right");
+  });
 
-    const start = (ev)=>{
-      ev.preventDefault();
-      move(dir); // immediate step
-      stopHold();
-      moveInterval = setInterval(()=> move(dir), HOLD_MS);
-    };
-    const end = (ev)=>{
-      ev.preventDefault();
-      stopHold();
-    };
+  function updateUI(){
+    // host button
+    $("btnStart").disabled = (myRole !== "host");
 
-    btn.addEventListener("touchstart", start, { passive:false });
-    btn.addEventListener("touchend", end, { passive:false });
-    btn.addEventListener("touchcancel", end, { passive:false });
+    // actions enabled only for players
+    const isPlayer = (myRole === "A" || myRole === "B");
+    $("btnAttack").disabled = !isPlayer;
+    $("btnDefend").disabled = !isPlayer;
+    $("btnHeal").disabled = !isPlayer;
 
-    // also works with mouse
-    btn.addEventListener("mousedown", start);
-    btn.addEventListener("mouseup", end);
-    btn.addEventListener("mouseleave", end);
+    // show dpad only for players (mobile)
+    $("dpadWrap").style.display = isPlayer ? "block" : "none";
   }
 
-  function stopHold(){
-    if (moveInterval) {
-      clearInterval(moveInterval);
-      moveInterval = null;
+  function renderState(st){
+    updateUI();
+
+    // status text
+    let status = st.started ? "✅ Running (4:00 total, tick every 1:00)" : "Not started.";
+    if (st.result){
+      if (st.result.winner === "Draw") {
+        status = `🏁 Ended: Draw (A ${st.result.aHp} HP / B ${st.result.bHp} HP)`;
+      } else {
+        status = `🏁 Ended: Winner ${st.result.winner} (A ${st.result.aHp} HP / B ${st.result.bHp} HP)`;
+      }
     }
-  }
+    $("gameStatus").textContent = status;
 
-  bindHold("btnU","U");
-  bindHold("btnD","D");
-  bindHold("btnL","L");
-  bindHold("btnR","R");
+    // Render board (3x3)
+    const board = $("board");
+    board.innerHTML = "";
 
-  document.getElementById("btnAttack").onclick = ()=> action("attack");
-  document.getElementById("btnHeal").onclick   = ()=> action("heal");
-  document.getElementById("btnDefend").onclick = ()=> action("defend");
-  document.getElementById("btnStart").onclick  = ()=> startMatch();
+    const corners = new Set([
+      "0,0",
+      "0,"+(st.grid.h-1),
+      (st.grid.w-1)+",0",
+      (st.grid.w-1)+","+(st.grid.h-1)
+    ]);
 
-  // ---- Draw map + players
-  const canvas = document.getElementById("arena");
-  const ctx = canvas.getContext("2d");
+    for (let y=0; y<st.grid.h; y++){
+      for (let x=0; x<st.grid.w; x++){
+        const cell = document.createElement("div");
+        cell.className = "cell" + (corners.has(x+","+y) ? " corner" : "");
 
-  function draw(){
-    if (!lastState) return;
-    const w = lastState.map.w;
-    const h = lastState.map.h;
+        // place unit
+        if (st.units.A.x === x && st.units.A.y === y){
+          const u = document.createElement("div");
+          u.className = "unit unitA";
+          u.textContent = "A";
+          cell.appendChild(u);
+        }
+        if (st.units.B.x === x && st.units.B.y === y){
+          const u = document.createElement("div");
+          u.className = "unit unitB";
+          u.textContent = "B";
+          cell.appendChild(u);
+        }
 
-    // cell size
-    const cw = canvas.width / w;
-    const ch = canvas.height / h;
-
-    // background
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    ctx.fillStyle = "#bfcab8";
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-
-    // grid
-    ctx.strokeStyle = "rgba(0,0,0,0.18)";
-    for(let x=0;x<=w;x++){
-      ctx.beginPath();
-      ctx.moveTo(x*cw,0);
-      ctx.lineTo(x*cw,canvas.height);
-      ctx.stroke();
-    }
-    for(let y=0;y<=h;y++){
-      ctx.beginPath();
-      ctx.moveTo(0,y*ch);
-      ctx.lineTo(canvas.width,y*ch);
-      ctx.stroke();
-    }
-
-    // corner zones (3x3) highlights
-    ctx.fillStyle = "rgba(255,255,255,0.22)";
-    ctx.fillRect(0,0,cw*3,ch*3); // TL
-    ctx.fillRect(canvas.width-cw*3,0,cw*3,ch*3); // TR
-    ctx.fillRect(0,canvas.height-ch*3,cw*3,ch*3); // BL
-    ctx.fillRect(canvas.width-cw*3,canvas.height-ch*3,cw*3,ch*3); // BR
-
-    // windows (visual)
-    for(const win of lastState.map.windows || []){
-      ctx.fillStyle = "rgba(106,123,95,0.85)";
-      ctx.fillRect(win.x*cw+2, win.y*ch+2, cw-4, ch-4);
-    }
-
-    // throw animation (tomato/rose)
-    if (lastThrow && Date.now() - lastThrow.t < 800) {
-      const dt = (Date.now() - lastThrow.t) / 800; // 0..1
-      const from = lastThrow.from;
-      const toSeat = lastThrow.toSeat;
-      const to = lastState.players[toSeat];
-      if (to) {
-        const fx = (from.x + 0.5) * cw;
-        const fy = (from.y + 0.5) * ch;
-        const tx = (to.x + 0.5) * cw;
-        const ty = (to.y + 0.5) * ch;
-        const x = fx + (tx - fx) * dt;
-        const y = fy + (ty - fy) * dt;
-
-        ctx.beginPath();
-        ctx.fillStyle = (lastThrow.throwType === "tomato") ? "#d44" : "#e8a";
-        ctx.arc(x, y, Math.min(cw,ch)*0.18, 0, Math.PI*2);
-        ctx.fill();
+        board.appendChild(cell);
       }
     }
 
-    // players as colored squares + labels
-    drawPlayer(lastState.players.A, cw, ch, "A");
-    drawPlayer(lastState.players.B, cw, ch, "B");
-
-    // match timer
-    if (lastState.started && lastState.endsAt) {
-      const msLeft = Math.max(0, lastState.endsAt - Date.now());
-      const sLeft = Math.ceil(msLeft / 1000);
-      ctx.fillStyle = "rgba(0,0,0,0.65)";
-      ctx.fillRect(8,8,170,28);
-      ctx.fillStyle = "#fff";
-      ctx.font = "16px monospace";
-      ctx.fillText(`⏱️ ${sLeft}s`, 16, 28);
+    // Action limit info (optional: show in log-ish way)
+    if (myRole === "A" || myRole === "B"){
+      const me = st.units[myRole];
+      $("btnHeal").textContent = `✨ Heal (${me.healLeft}/6)`;
+      $("btnDefend").textContent = `🛡️ Defend (${me.defendLeft}/6)`;
+      $("btnAttack").textContent = "⚔️ Attack";
+    } else {
+      $("btnHeal").textContent = "✨ Heal";
+      $("btnDefend").textContent = "🛡️ Defend";
+      $("btnAttack").textContent = "⚔️ Attack";
     }
   }
-
-  function drawPlayer(p, cw, ch, seat){
-    if (!p) return;
-    const x = p.x * cw;
-    const y = p.y * ch;
-
-    // seat color
-    ctx.fillStyle = (seat === "A") ? "#2c6" : "#26c"; // green vs blue
-    ctx.fillRect(x+2, y+2, cw-4, ch-4);
-
-    // stink cloud
-    if (p.stink) {
-      ctx.fillStyle = "rgba(50,50,50,0.35)";
-      ctx.beginPath();
-      ctx.arc(x+cw*0.3, y+ch*0.3, Math.min(cw,ch)*0.25, 0, Math.PI*2);
-      ctx.arc(x+cw*0.7, y+ch*0.4, Math.min(cw,ch)*0.22, 0, Math.PI*2);
-      ctx.arc(x+cw*0.5, y+ch*0.7, Math.min(cw,ch)*0.26, 0, Math.PI*2);
-      ctx.fill();
-    }
-
-    // label
-    ctx.fillStyle = "#111";
-    ctx.font = "14px monospace";
-    ctx.fillText(`${seat}:${p.name}`, x+4, y-4);
-
-    // hp bar small
-    const bw = cw-4;
-    const frac = p.hpMax ? (p.hp/p.hpMax) : 0;
-    ctx.fillStyle = "rgba(0,0,0,0.3)";
-    ctx.fillRect(x+2, y+ch-10, bw, 8);
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
-    ctx.fillRect(x+2, y+ch-10, Math.max(0, bw*frac), 8);
-  }
-
-  // draw loop
-  setInterval(draw, 80);
 </script>
-
 </body>
 </html>
