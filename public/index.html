@@ -1,0 +1,167 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Arena</title>
+
+  <style>
+    body{
+      font-family: monospace;
+      background:#dfe9d6;
+      padding:14px;
+    }
+    .card{
+      background:#fffdf1;
+      border:2px solid #6a7b5f;
+      border-radius:12px;
+      padding:12px;
+      margin-bottom:12px;
+    }
+    input,button{
+      font:inherit;
+      padding:8px;
+      margin-top:6px;
+      width:100%;
+      border-radius:10px;
+      border:2px solid #6a7b5f;
+    }
+    button{cursor:pointer;}
+    pre{
+      background:#000;
+      color:#0f0;
+      padding:10px;
+      border-radius:12px;
+      min-height:120px;
+    }
+  </style>
+</head>
+
+<body>
+<h1>🏰 Arena</h1>
+
+<div class="card">
+  <b>Join Room</b><br>
+
+  Room Code:
+  <input id="room" value="ARENA"/>
+
+  Password:
+  <input id="pw" value="rose"/>
+
+  <button onclick="joinHost()">Host (Play)</button>
+  <button onclick="joinSpectator()">Spectate (Watch)</button>
+</div>
+
+<div class="card">
+  <b>Players</b><br>
+  Player A:
+  <input id="aName" value="PlayerA"/>
+  Player B:
+  <input id="bName" value="PlayerB"/>
+
+  <button onclick="startMatch()">Start Match</button>
+  <button onclick="shareResult()" id="shareBtn" disabled>Share Result 📲</button>
+</div>
+
+<div class="card">
+  <b>Battle Log</b>
+  <pre id="log">Not connected.</pre>
+</div>
+
+<script>
+let ws=null;
+let role=null;
+let lastResult=null;
+
+function log(txt){
+  document.getElementById("log").textContent += "\n"+txt;
+}
+
+function connect(r){
+  const room=document.getElementById("room").value.trim();
+  const pw=document.getElementById("pw").value.trim();
+
+  ws=new WebSocket(location.origin.replace("https","wss"));
+
+  ws.onopen=()=>{
+    ws.send(JSON.stringify({type:"join",room,password:pw,role:r}));
+  };
+
+  ws.onmessage=(e)=>{
+    const msg=JSON.parse(e.data);
+
+    if(msg.type==="joined"){
+      role=msg.role;
+      document.getElementById("log").textContent="Joined as "+role;
+    }
+
+    if(msg.type==="state"){
+      document.getElementById("log").textContent=msg.state.log;
+    }
+
+    if(msg.type==="match_ended"){
+      lastResult=msg.state;
+      document.getElementById("shareBtn").disabled=false;
+      log("\n🏆 Winner: "+msg.state.winner);
+    }
+
+    if(msg.type==="error"){
+      alert(msg.error);
+    }
+  };
+}
+
+function joinHost(){ connect("host"); }
+function joinSpectator(){ connect("spectator"); }
+
+function startMatch(){
+  if(role!=="host"){
+    alert("Only host can start!");
+    return;
+  }
+
+  const A=document.getElementById("aName").value;
+  const B=document.getElementById("bName").value;
+
+  const winner=Math.random()>0.5?A:B;
+
+  const battleLog=
+`🍅 Tomatoes and 🌹 Roses fly around...
+
+${A} vs ${B}
+
+💥 Gorilla Judge stomps the loser!
+
+Winner: ${winner}`;
+
+  const state={winner,log:battleLog};
+  lastResult=state;
+
+  ws.send(JSON.stringify({type:"state",state}));
+  ws.send(JSON.stringify({type:"end_match",state}));
+
+  document.getElementById("shareBtn").disabled=false;
+}
+
+async function shareResult(){
+  if(!lastResult) return;
+
+  const text=
+`🏰 Arena Result
+
+Winner: ${lastResult.winner}
+
+🍅🌹 Chaos decided fate!`;
+
+  if(navigator.share){
+    await navigator.share({title:"Arena Result",text});
+  } else {
+    await navigator.clipboard.writeText(text);
+    alert("Copied!");
+  }
+}
+</script>
+
+</body>
+</html>
