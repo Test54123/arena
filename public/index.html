@@ -50,123 +50,122 @@
 </head>
 
 <body>
-  <h2>🏰 Arena</h2>
 
-  <div class="card">
-    <h3>Join Room</h3>
-    Room Code:
-    <input id="room" value="ARENA"/>
-    Password:
-    <input id="pass" value="rose"/>
+<h2>🏰 Arena</h2>
 
-    <button onclick="connectHost()">Host (Play)</button>
-    <button onclick="connectSpectate()">Spectate (Watch)</button>
-  </div>
+<div class="card">
+  <h3>Join Room</h3>
 
-  <div class="card">
-    <h3>Players</h3>
-    Player A:
-    <input id="a" value="PlayerA"/>
-    Player B:
-    <input id="b" value="PlayerB"/>
+  Room Code:
+  <input id="room" value="ARENA"/>
 
-    <button onclick="startMatch()">Start Match</button>
+  Password:
+  <input id="pass" value="rose"/>
 
-    <button id="shareBtn" disabled onclick="shareResult()">
-      Share Result 📲
-    </button>
-  </div>
+  <button onclick="connectHost()">Host (Play)</button>
+  <button onclick="connectSpectate()">Spectate (Watch)</button>
+</div>
 
-  <div class="card">
-    <h3>Battle Log</h3>
-    <div id="log">Not connected.</div>
-  </div>
+<div class="card">
+  <h3>Players</h3>
 
-  <!-- Socket.IO client served from your server -->
-  <script src="/socket.io/socket.io.js"></script>
-  <script>
-    const socket = io(); // ✅ correct for Render (no localhost)
+  Player A:
+  <input id="a" value="PlayerA"/>
 
-    let lastResult = "";
+  Player B:
+  <input id="b" value="PlayerB"/>
 
-    function log(msg){
-      const box = document.getElementById("log");
-      if (box.textContent === "Not connected.") box.textContent = "";
-      box.textContent += (box.textContent ? "\n" : "") + msg;
-      box.scrollTop = box.scrollHeight;
+  <button onclick="startMatch()">Start Match</button>
+
+  <button id="shareBtn" disabled onclick="shareResult()">
+    Share Result 📲
+  </button>
+</div>
+
+<div class="card">
+  <h3>Battle Log</h3>
+  <div id="log">Not connected.</div>
+</div>
+
+<!-- Socket.IO client served by your server -->
+<script src="/socket.io/socket.io.js"></script>
+
+<script>
+  const socket = io();
+
+  let lastResult = "";
+
+  function log(msg){
+    const box = document.getElementById("log");
+    box.textContent += "\n" + msg;
+    box.scrollTop = box.scrollHeight;
+  }
+
+  socket.on("connect", ()=>{
+    document.getElementById("log").textContent = "";
+    log("✅ Connected to server!");
+  });
+
+  socket.on("disconnect", ()=>{
+    log("❌ Disconnected.");
+  });
+
+  socket.on("statusMsg", (m)=> log(m));
+  socket.on("errorMsg", (m)=> log(m));
+
+  // When a result is broadcast, everyone in the room gets it (host + spectators)
+  socket.on("matchResult", (result)=>{
+    log("📣 Result received:");
+    log(result);
+    lastResult = result;
+    document.getElementById("shareBtn").disabled = false;
+  });
+
+  function connectHost(){
+    const room = document.getElementById("room").value.trim();
+    const pass = document.getElementById("pass").value.trim();
+    socket.emit("hostRoom", { room, pass });
+  }
+
+  function connectSpectate(){
+    const room = document.getElementById("room").value.trim();
+    const pass = document.getElementById("pass").value.trim();
+    socket.emit("spectateRoom", { room, pass });
+  }
+
+  function startMatch(){
+    const A = document.getElementById("a").value.trim();
+    const B = document.getElementById("b").value.trim();
+
+    if(!A || !B){
+      alert("Please enter both player names!");
+      return;
     }
 
-    socket.on("connect", ()=>{
-      log("✅ Connected to server!");
-    });
+    const winner = Math.random() > 0.5 ? A : B;
+    lastResult = `🏆 Winner: ${winner}\n(${A} vs ${B})`;
 
-    socket.on("disconnect", ()=>{
-      log("❌ Disconnected.");
-    });
+    log("⚔️ Match started...");
+    log(lastResult);
 
-    socket.on("joined", ({ role, room })=>{
-      log(`✅ Joined as ${role} in room: ${room}`);
-    });
+    document.getElementById("shareBtn").disabled = false;
+  }
 
-    socket.on("errorMsg", ({ error })=>{
-      log("⚠️ " + error);
-      alert(error);
-    });
+  function shareResult(){
+    if(!lastResult) return;
 
-    // ✅ THIS is what the spectator needs
-    socket.on("matchResult", ({ result })=>{
-      log("📣 MATCH RESULT RECEIVED:");
-      log(result);
-    });
+    const room = document.getElementById("room").value.trim();
+    const password = document.getElementById("pass").value.trim();
 
-    function connectHost(){
-      const room = document.getElementById("room").value.trim();
-      const pass = document.getElementById("pass").value.trim();
-      socket.emit("hostRoom", { room, pass });
-      log("🎮 Hosting room: " + room);
+    log("📤 Sending result...");
+    socket.emit("matchResult", { room, password, result: lastResult });
+
+    // Optional phone share UI:
+    if(navigator.share){
+      navigator.share({ title: "Arena Match Result", text: lastResult }).catch(()=>{});
     }
+  }
+</script>
 
-    function connectSpectate(){
-      const room = document.getElementById("room").value.trim();
-      const pass = document.getElementById("pass").value.trim();
-      socket.emit("spectateRoom", { room, pass });
-      log("👀 Watching room: " + room);
-    }
-
-    function startMatch(){
-      const room = document.getElementById("room").value.trim();
-      const password = document.getElementById("pass").value.trim();
-
-      const A = document.getElementById("a").value.trim();
-      const B = document.getElementById("b").value.trim();
-      if(!A || !B){
-        alert("Please enter both player names!");
-        return;
-      }
-
-      const winner = Math.random() > 0.5 ? A : B;
-      lastResult = `🏆 Winner: ${winner}\n(${A} vs ${B})`;
-
-      log("⚔️ Match started...");
-      log("📤 Sending result...");
-
-      socket.emit("matchResult", { room, password, result: lastResult });
-
-      document.getElementById("shareBtn").disabled = false;
-    }
-
-    function shareResult(){
-      if(!lastResult) return;
-
-      if(navigator.share){
-        navigator.share({
-          title: "Arena Match Result",
-          text: lastResult
-        });
-      } else {
-        alert("Sharing not supported on this device.");
-      }
-    }
-  </script>
 </body>
 </html>
