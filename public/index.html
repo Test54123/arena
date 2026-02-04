@@ -4,6 +4,7 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Arena</title>
+
   <style>
     body{
       font-family: monospace;
@@ -12,7 +13,7 @@
       margin:0;
     }
     h2{ margin: 6px 0 12px; }
-    .wrap{ max-width: 900px; margin: 0 auto; }
+    .wrap{ max-width: 980px; margin: 0 auto; }
     .card{
       background:#fffdf1;
       border:2px solid #6a7b5f;
@@ -30,8 +31,8 @@
       font-size:16px;
       box-sizing:border-box;
     }
-    .row{ display:flex; gap:10px; }
-    .row > *{ flex:1; }
+    .row{ display:flex; gap:10px; flex-wrap:wrap; }
+    .row > *{ flex:1; min-width: 140px; }
     button{
       cursor:pointer;
       background:#eee;
@@ -39,18 +40,27 @@
     }
     button:disabled{ opacity:0.4; cursor:not-allowed; }
 
+    .pillRow{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+    .pill{
+      padding:6px 10px;
+      border:1px solid #6a7b5f;
+      border-radius:999px;
+      background:#f3f1df;
+      display:inline-block;
+    }
+    .small{ font-size: 13px; opacity: 0.9; margin-top:8px; }
+
     /* board */
     .boardWrap{ display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start; }
     .board{
-      width: 300px;
-      height: 300px;
+      width: 320px;
+      height: 320px;
       border:2px solid #6a7b5f;
       border-radius:12px;
       background:#f3f1df;
       display:grid;
-      grid-template-columns: repeat(3, 1fr);
-      grid-template-rows: repeat(3, 1fr);
       overflow:hidden;
+      touch-action: manipulation;
     }
     .cell{
       border:1px solid rgba(106,123,95,0.35);
@@ -59,9 +69,11 @@
       justify-content:center;
       position:relative;
       user-select:none;
+      min-height: 0;
+      min-width: 0;
     }
     .corner{
-      background: rgba(106,123,95,0.10);
+      background: rgba(106,123,95,0.12);
     }
     .unit{
       width: 70%;
@@ -80,13 +92,13 @@
     /* dpad */
     .dpad{
       display:grid;
-      grid-template-columns: 60px 60px 60px;
-      grid-template-rows: 60px 60px 60px;
+      grid-template-columns: 64px 64px 64px;
+      grid-template-rows: 64px 64px 64px;
       gap:8px;
       justify-content:center;
       margin-top:10px;
     }
-    .dpad button{ height:60px; width:60px; }
+    .dpad button{ height:64px; width:64px; }
     .dpad .empty{ visibility:hidden; }
 
     #log{
@@ -94,25 +106,25 @@
       color:#00ff00;
       padding:10px;
       border-radius:10px;
-      min-height:160px;
+      min-height:180px;
       white-space:pre-wrap;
       font-size:14px;
       overflow:auto;
     }
-    .pillRow{ display:flex; gap:10px; flex-wrap:wrap; }
-    .pill{
-      padding:6px 10px;
-      border:1px solid #6a7b5f;
-      border-radius:999px;
-      background:#f3f1df;
-      display:inline-block;
+
+    .statsBox{
+      border:1px dashed rgba(106,123,95,0.7);
+      border-radius:10px;
+      padding:10px;
+      background: rgba(255,255,255,0.35);
+      margin-top:10px;
     }
-    .small{ font-size: 13px; opacity: 0.9; }
+    .statLine{ margin:4px 0; }
   </style>
 </head>
+
 <body>
 <div class="wrap">
-
   <h2>🏰 Arena</h2>
 
   <div class="card">
@@ -125,8 +137,8 @@
     <input id="pass" value="rose"/>
 
     <div class="row" style="margin-top:10px;">
-      <button id="btnCreate" onclick="createRoom()">Host (Create)</button>
-      <button id="btnSpectate" onclick="joinSpectator()">Spectate</button>
+      <button id="btnHost" onclick="connectHost()">Host (Create)</button>
+      <button id="btnSpec" onclick="connectSpectate()">Spectate</button>
     </div>
 
     <hr/>
@@ -142,23 +154,30 @@
       <option value="B">Player B</option>
     </select>
 
-    <button onclick="joinPlayer()">Join Player Seat</button>
-
-    <div class="pillRow" style="margin-top:10px;">
-      <div class="pill">Status: <span id="status">not connected</span></div>
-      <div class="pill">Role: <span id="role">-</span></div>
+    <div class="row">
+      <input id="hpMax" placeholder="HP Max (default 50)" inputmode="numeric"/>
+      <input id="atk" placeholder="ATK (default 10)" inputmode="numeric"/>
+      <input id="def" placeholder="DEF (default 5)" inputmode="numeric"/>
     </div>
 
-    <div class="small" style="margin-top:8px;">
-      ✅ Handy-Steuerung: D-Pad (unten). PC: Pfeiltasten.
+    <button id="btnJoinSeat" onclick="joinSeat()">Join Player Seat</button>
+
+    <div class="pillRow">
+      <div class="pill">Status: <span id="status">not connected</span></div>
+      <div class="pill">Role: <span id="role">-</span></div>
+      <div class="pill">Game: <span id="gameLine">-</span></div>
+    </div>
+
+    <div class="small">
+      ✅ Handy: D-Pad unten. PC: Pfeiltasten. <br/>
+      ⚠️ Attack geht nur, wenn du direkt neben dem Gegner stehst (1 Feld Abstand).
     </div>
   </div>
 
   <div class="card">
     <h3>Game</h3>
-    <div id="gameStatus">Not started.</div>
 
-    <div class="boardWrap" style="margin-top:10px;">
+    <div class="boardWrap">
       <div>
         <div class="board" id="board"></div>
 
@@ -182,40 +201,31 @@
       <div style="flex:1; min-width:260px;">
         <h4>Host Controls</h4>
         <div class="row">
-          <input id="nameA" placeholder="Player A name (optional)"/>
-          <input id="nameB" placeholder="Player B name (optional)"/>
+          <button id="btnStartReset" onclick="hostStartReset()" disabled>Start Game (Host)</button>
         </div>
-
-        <div class="row">
-          <input id="aHp" placeholder="A HP (default 30)" inputmode="numeric"/>
-          <input id="bHp" placeholder="B HP (default 30)" inputmode="numeric"/>
-        </div>
-        <div class="row">
-          <input id="aAtk" placeholder="A ATK (default 5)" inputmode="numeric"/>
-          <input id="bAtk" placeholder="B ATK (default 5)" inputmode="numeric"/>
-        </div>
-        <div class="row">
-          <input id="aDef" placeholder="A DEF (default 2)" inputmode="numeric"/>
-          <input id="bDef" placeholder="B DEF (default 2)" inputmode="numeric"/>
-        </div>
-        <div class="row">
-          <input id="aHeal" placeholder="A HEAL (default 6)" inputmode="numeric"/>
-          <input id="bHeal" placeholder="B HEAL (default 6)" inputmode="numeric"/>
-        </div>
-
-        <button id="btnStart" onclick="hostStart()" disabled>Start / Reset Game (Host)</button>
+        <div class="small">Spielzeit: 4 Minuten. Jede Minute kommt ein Event (Bonus/Malus).</div>
 
         <hr/>
 
         <h4>Actions (Players only)</h4>
         <div class="row">
           <button id="btnAttack" onclick="action('attack')" disabled>⚔️ Attack</button>
-          <button id="btnDefend" onclick="action('defend')" disabled>🛡️ Defend</button>
-          <button id="btnHeal" onclick="action('heal')" disabled>✨ Heal</button>
+          <button id="btnDefend" onclick="action('defend')" disabled>🛡️ Defend (0/6)</button>
+          <button id="btnHeal" onclick="action('heal')" disabled>✨ Heal (0/6)</button>
         </div>
 
-        <div class="small" style="margin-top:8px;">
-          Heal & Defend sind pro Spieler auf <b>6×</b> begrenzt.
+        <div class="statsBox" id="statsBox" style="display:none;">
+          <div class="statLine"><b>Du:</b> <span id="meName">-</span></div>
+          <div class="statLine">HP: <span id="meHp">-</span> / <span id="meHpMax">-</span></div>
+          <div class="statLine">ATK: <span id="meAtk">-</span> | DEF: <span id="meDef">-</span></div>
+          <div class="statLine">Position: (<span id="meX">-</span>, <span id="meY">-</span>)</div>
+        </div>
+
+        <div class="statsBox" id="oppBox" style="display:none;">
+          <div class="statLine"><b>Gegner:</b> <span id="opName">-</span></div>
+          <div class="statLine">HP: <span id="opHp">-</span> / <span id="opHpMax">-</span></div>
+          <div class="statLine">ATK: <span id="opAtk">-</span> | DEF: <span id="opDef">-</span></div>
+          <div class="statLine">Position: (<span id="opX">-</span>, <span id="opY">-</span>)</div>
         </div>
       </div>
     </div>
@@ -225,110 +235,121 @@
     <h3>Battle Log</h3>
     <div id="log">Not connected.</div>
   </div>
-
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
   const socket = io();
 
-  let myRoom = null;
-  let myRole = "-"; // host | A | B | spectator | -
+  let currentRoom = null;
+  let currentRole = "-"; // host | player | spectator
+  let currentSeat = null; // A | B | null
   let lastState = null;
 
   function $(id){ return document.getElementById(id); }
 
   function setStatus(t){ $("status").textContent = t; }
-  function setRole(t){ myRole = t; $("role").textContent = t; }
+  function setRoleText(){
+    if (currentRole === "player") $("role").textContent = "player " + currentSeat;
+    else $("role").textContent = currentRole || "-";
+  }
 
-  function log(msg){
+  function roomVal(){ return $("room").value.trim().toUpperCase(); }
+  function passVal(){ return $("pass").value.trim(); }
+
+  function setLog(lines){
     const box = $("log");
-    box.textContent += "\\n" + msg;
+    box.textContent = (lines && lines.length) ? lines.join("\n") : "";
     box.scrollTop = box.scrollHeight;
   }
 
   socket.on("connect", () => {
-    $("log").textContent = "";
     setStatus("connected");
-    log("✅ Connected to server!");
+    setLog(["✅ Connected to server!"]);
+    currentRoom = null;
+    currentRole = "-";
+    currentSeat = null;
+    setRoleText();
+    updateUI();
   });
 
   socket.on("disconnect", () => {
     setStatus("disconnected");
-    log("❌ Disconnected.");
+    // log bleibt stehen
   });
 
   socket.on("errorMsg", (m) => {
     alert(m);
-    log("❌ " + m);
+    // wir hängen es unten ans log an
+    const lines = ($("log").textContent || "").split("\n").filter(Boolean);
+    lines.push("❌ " + m);
+    setLog(lines);
   });
 
-  socket.on("role", ({ role, room }) => {
-    myRoom = room;
-    setRole(role);
+  socket.on("role", ({ role, seat }) => {
+    currentRole = role;
+    currentSeat = seat || null;
+    currentRoom = roomVal();
+    setRoleText();
     updateUI();
+    // state anfordern
+    socket.emit("requestState", { room: currentRoom });
   });
-
-  socket.on("log", (line) => log(line));
 
   socket.on("state", (st) => {
     lastState = st;
-    renderState(st);
+    render(st);
   });
 
-  function createRoom(){
-    const room = $("room").value.trim().toUpperCase();
-    const pass = $("pass").value.trim();
-    socket.emit("createRoom", { room, pass });
+  function connectHost(){
+    const room = roomVal();
+    const pass = passVal();
+    socket.emit("hostRoom", { room, pass });
   }
 
-  function joinPlayer(){
-    const room = $("room").value.trim().toUpperCase();
-    const pass = $("pass").value.trim();
-    const role = $("seat").value;
-    const name = $("myName").value.trim() || "Player";
-    socket.emit("joinRoom", { room, pass, role, name });
+  function connectSpectate(){
+    const room = roomVal();
+    const pass = passVal();
+    socket.emit("spectateRoom", { room, pass });
   }
 
-  function joinSpectator(){
-    const room = $("room").value.trim().toUpperCase();
-    const pass = $("pass").value.trim();
-    socket.emit("joinRoom", { room, pass, role: "spectator", name: "Spectator" });
-  }
+  function joinSeat(){
+    const room = roomVal();
+    const pass = passVal();
+    const seat = $("seat").value;
+    const name = ($("myName").value || "").trim();
 
-  function hostStart(){
-    const room = $("room").value.trim().toUpperCase();
-    const pass = $("pass").value.trim();
-
-    const settings = {
-      aHp: $("aHp").value, bHp: $("bHp").value,
-      aAtk: $("aAtk").value, bAtk: $("bAtk").value,
-      aDef: $("aDef").value, bDef: $("bDef").value,
-      aHeal: $("aHeal").value, bHeal: $("bHeal").value,
-    };
-    const names = {
-      A: $("nameA").value.trim(),
-      B: $("nameB").value.trim(),
+    const stats = {
+      hpMax: ($("hpMax").value || "").trim(),
+      atk: ($("atk").value || "").trim(),
+      def: ($("def").value || "").trim(),
     };
 
-    socket.emit("hostStart", { room, pass, settings, names });
+    socket.emit("joinSeat", { room, pass, seat, name, stats });
+  }
+
+  function hostStartReset(){
+    const room = roomVal();
+    const pass = passVal();
+    const action = (lastState && lastState.started) ? "reset" : "start";
+    socket.emit("hostStartReset", { room, pass, action });
   }
 
   function move(dir){
-    if (!myRoom) return;
-    if (myRole !== "A" && myRole !== "B") return;
-    socket.emit("move", { room: myRoom, side: myRole, dir });
+    if (!currentRoom) return;
+    if (currentRole !== "player") return;
+    socket.emit("move", { room: currentRoom, pass: passVal(), dir });
   }
 
   function action(type){
-    if (!myRoom) return;
-    if (myRole !== "A" && myRole !== "B") return;
-    socket.emit("action", { room: myRoom, side: myRole, type });
+    if (!currentRoom) return;
+    if (currentRole !== "player") return;
+    socket.emit("action", { room: currentRoom, pass: passVal(), type });
   }
 
-  // PC controls (arrow keys)
+  // PC: Pfeiltasten
   window.addEventListener("keydown", (e) => {
-    if (myRole !== "A" && myRole !== "B") return;
+    if (currentRole !== "player") return;
     if (e.key === "ArrowUp") move("up");
     if (e.key === "ArrowDown") move("down");
     if (e.key === "ArrowLeft") move("left");
@@ -336,57 +357,69 @@
   });
 
   function updateUI(){
-    // host button
-    $("btnStart").disabled = (myRole !== "host");
-
-    // actions enabled only for players
-    const isPlayer = (myRole === "A" || myRole === "B");
+    $("btnStartReset").disabled = (currentRole !== "host");
+    const isPlayer = (currentRole === "player");
     $("btnAttack").disabled = !isPlayer;
     $("btnDefend").disabled = !isPlayer;
     $("btnHeal").disabled = !isPlayer;
-
-    // show dpad only for players (mobile)
     $("dpadWrap").style.display = isPlayer ? "block" : "none";
+    $("statsBox").style.display = isPlayer ? "block" : "none";
+    $("oppBox").style.display = isPlayer ? "block" : "none";
   }
 
-  function renderState(st){
+  function render(st){
     updateUI();
 
-    // status text
-    let status = st.started ? "✅ Running (4:00 total, tick every 1:00)" : "Not started.";
-    if (st.result){
-      if (st.result.winner === "Draw") {
-        status = `🏁 Ended: Draw (A ${st.result.aHp} HP / B ${st.result.bHp} HP)`;
-      } else {
-        status = `🏁 Ended: Winner ${st.result.winner} (A ${st.result.aHp} HP / B ${st.result.bHp} HP)`;
-      }
+    // Game line
+    if (!st.started) {
+      $("gameLine").textContent = "not started";
+    } else {
+      const sec = Math.ceil((st.timeLeftMs || 0) / 1000);
+      const mm = String(Math.floor(sec/60)).padStart(2,"0");
+      const ss = String(sec%60).padStart(2,"0");
+      $("gameLine").textContent = `running (${mm}:${ss} left)`;
     }
-    $("gameStatus").textContent = status;
 
-    // Render board (3x3)
+    // Host button label
+    if (currentRole === "host") {
+      $("btnStartReset").textContent = st.started ? "Reset Game (Host)" : "Start Game (Host)";
+    } else {
+      $("btnStartReset").textContent = "Start Game (Host)";
+    }
+
+    // Log
+    setLog(st.log || []);
+
+    // Render Board (uses server grid)
+    const w = st.grid?.w || 4;
+    const h = st.grid?.h || 4;
     const board = $("board");
+    board.style.gridTemplateColumns = `repeat(${w}, 1fr)`;
+    board.style.gridTemplateRows = `repeat(${h}, 1fr)`;
     board.innerHTML = "";
 
     const corners = new Set([
-      "0,0",
-      "0,"+(st.grid.h-1),
-      (st.grid.w-1)+",0",
-      (st.grid.w-1)+","+(st.grid.h-1)
+      `0,0`,
+      `${w-1},0`,
+      `0,${h-1}`,
+      `${w-1},${h-1}`,
     ]);
 
-    for (let y=0; y<st.grid.h; y++){
-      for (let x=0; x<st.grid.w; x++){
-        const cell = document.createElement("div");
-        cell.className = "cell" + (corners.has(x+","+y) ? " corner" : "");
+    const A = st.players?.A;
+    const B = st.players?.B;
 
-        // place unit
-        if (st.units.A.x === x && st.units.A.y === y){
+    for (let y=0; y<h; y++){
+      for (let x=0; x<w; x++){
+        const cell = document.createElement("div");
+        cell.className = "cell" + (corners.has(`${x},${y}`) ? " corner" : "");
+
+        if (A && A.pos && A.pos.x === x && A.pos.y === y){
           const u = document.createElement("div");
           u.className = "unit unitA";
           u.textContent = "A";
           cell.appendChild(u);
         }
-        if (st.units.B.x === x && st.units.B.y === y){
+        if (B && B.pos && B.pos.x === x && B.pos.y === y){
           const u = document.createElement("div");
           u.className = "unit unitB";
           u.textContent = "B";
@@ -397,15 +430,33 @@
       }
     }
 
-    // Action limit info (optional: show in log-ish way)
-    if (myRole === "A" || myRole === "B"){
-      const me = st.units[myRole];
-      $("btnHeal").textContent = `✨ Heal (${me.healLeft}/6)`;
-      $("btnDefend").textContent = `🛡️ Defend (${me.defendLeft}/6)`;
+    // Player action counters
+    if (currentRole === "player" && currentSeat && st.players && st.players[currentSeat]){
+      const me = st.players[currentSeat];
+      $("btnDefend").textContent = `🛡️ Defend (${me.usedDefend || 0}/6)`;
+      $("btnHeal").textContent = `✨ Heal (${me.usedHeal || 0}/6)`;
       $("btnAttack").textContent = "⚔️ Attack";
+
+      $("meName").textContent = me.name ?? "-";
+      $("meHp").textContent = me.hp ?? "-";
+      $("meHpMax").textContent = me.hpMax ?? "-";
+      $("meAtk").textContent = me.atk ?? "-";
+      $("meDef").textContent = me.def ?? "-";
+      $("meX").textContent = me.pos?.x ?? "-";
+      $("meY").textContent = me.pos?.y ?? "-";
+
+      const oppSeat = (currentSeat === "A") ? "B" : "A";
+      const op = st.players[oppSeat];
+      $("opName").textContent = op?.name ?? "-";
+      $("opHp").textContent = op?.hp ?? "-";
+      $("opHpMax").textContent = op?.hpMax ?? "-";
+      $("opAtk").textContent = op?.atk ?? "-";
+      $("opDef").textContent = op?.def ?? "-";
+      $("opX").textContent = op?.pos?.x ?? "-";
+      $("opY").textContent = op?.pos?.y ?? "-";
     } else {
-      $("btnHeal").textContent = "✨ Heal";
-      $("btnDefend").textContent = "🛡️ Defend";
+      $("btnDefend").textContent = "🛡️ Defend (0/6)";
+      $("btnHeal").textContent = "✨ Heal (0/6)";
       $("btnAttack").textContent = "⚔️ Attack";
     }
   }
