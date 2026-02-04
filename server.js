@@ -3,69 +3,143 @@ const http = require("http");
 const { Server } = require("socket.io");
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
-
-// Serve static files (index.html)
 app.use(express.static("public"));
 
-let rooms = {};
+const server = http.createServer(app);
 
-// SOCKET CONNECTION
+// Socket.IO (Render/HTTPS-safe)
+const io = new Server(server, {
+  cors: { origin: true, methods: ["GET", "POST"] },
+});
+
+const rooms = new Map(); // roomCode -> { hostSocketId, spectators:Set(socketId), password, lastResult }
+
+function normRoom(x) {
+  return String(x || "").trim().toUpperCase();
+}
+function normPass(x) {
+  return String(x || "").trim();
+}
+
+function getOrCreateRoom(roomCode, password) {
+  if (!rooms.has(roomCode)) {
+    rooms.set(roomCode, {
+      hostSocketId: null,
+      spectators: new Set(),
+      password,
+      lastResult: null,
+    });
+  }
+  return rooms.get(roomCode);
+}
+
+function cleanupRoomIfEmpty(roomCode) {
+  const room = rooms.get(roomCode);
+  if (!room) return;
+  const hasHost = !!room.hostSocketId;
+  const hasSpectators = room.spectators.size > 0;
+  if (!hasHost && !hasSpectators) rooms.delete(roomCode);
+}
+
 io.on("connection", (socket) => {
-  console.log("User connected:", socket.id);
+  console.log("Connected:", socket.id);
 
-  // HOST ROOM
+  // HOST creates/joins room
   socket.on("hostRoom", ({ room, pass }) => {
-    rooms[room] = { password: pass };
+    const r = normRoom(room);
+    const p = normPass(pass);
 
-    socket.join(room);
+    if (!r) return;
 
-    console.log("Hosting room:", room);
+    const existing = rooms.get(r);
+    if (existing && existing.password !== p) {
+      socket.emit("errorMsg", "❌ Wrong password for this room.");
+      return;
+    }
 
-    socket.emit("message", "✅ Hosting room: " + room);
+    const roomObj = getOrCreateRoom(r, p);
+    roomObj.hostSocketId = socket.id;
+
+    socket.join(r);
+    socket.data.room = r;
+    socket.data.role = "host";
+
+    socket.emit("statusMsg", `🎮 Hosting room: ${r}`);
+
+    // If we already have a lastResult, host can re-send later; spectators will get it on join
   });
 
-  // SPECTATE ROOM
+  // SPECTATOR joins room
   socket.on("spectateRoom", ({ room, pass }) => {
-    if (!rooms[room]) {
-      socket.emit("message", "❌ Room does not exist.");
+    const r = normRoom(room);
+    const p = normPass(pass);
+
+    const roomObj = rooms.get(r);
+    if (!roomObj) {
+      socket.emit("errorMsg", "❌ Room not found. Host must create it first.");
+      return;
+    }
+    if (roomObj.password !== p) {
+      socket.emit("errorMsg", "❌ Wrong password.");
       return;
     }
 
-    if (rooms[room].password !== pass) {
-      socket.emit("message", "❌ Wrong password.");
-      return;
+    roomObj.spectators.add(socket.id);
+
+    socket.join(r);
+    socket.data.room = r;
+    socket.data.role = "spectator";
+
+    socket.emit("statusMsg", `👀 Watching room: ${r}`);
+
+    // Send last result immediately if available
+    if (roomObj.lastResult) {
+      socket.emit("matchResult", roomObj.lastResult);
     }
-
-    socket.join(room);
-
-    console.log("Spectating room:", room);
-
-    socket.emit("message", "👀 Watching room: " + room);
   });
 
-  // MATCH RESULT SEND
+  // Host sends result to server, server broadcasts to room
   socket.on("matchResult", ({ room, password, result }) => {
-    if (!rooms[room]) return;
+    const r = normRoom(room);
+    const p = normPass(password);
 
-    if (rooms[room].password !== password) {
-      socket.emit("message", "❌ Wrong password.");
-      return;
-    }
+    const roomObj = rooms.get(r);
+    if (!roomObj) return;
 
-    console.log("Result sent to room:", room);
+    // Only allow correct password
+    if (roomObj.password !== p) return;
 
-    // Broadcast to everyone in the room
-    io.to(room).emit("battleResult", result);
+    // Optional: only host may send
+    if (roomObj.hostSocketId !== socket.id) return;
+
+    roomObj.lastResult = result;
+
+    io.to(r).emit("matchResult", result);
+    console.log("Broadcast result to room:", r);
   });
 
   socket.on("disconnect", () => {
-    console.log("User disconnected:", socket.id);
+    const r = socket.data.room;
+    const role = socket.data.role;
+
+    if (r && rooms.has(r)) {
+      const roomObj = rooms.get(r);
+
+      if (role === "host" && roomObj.hostSocketId === socket.id) {
+        roomObj.hostSocketId = null;
+      }
+      if (role === "spectator") {
+        roomObj.spectators.delete(socket.id);
+      }
+
+      cleanupRoomIfEmpty(r);
+    }
+
+    console.log("Disconnected:", socket.id);
   });
 });
 
-// START SERVER
+// Render Port
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log("Server running on port", PORT);
