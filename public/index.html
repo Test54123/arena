@@ -53,8 +53,8 @@
     /* board */
     .boardWrap{ display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start; }
     .board{
-      width: 320px;
-      height: 320px;
+      width: 240px;
+      height: 240px;
       border:2px solid #6a7b5f;
       border-radius:12px;
       background:#f3f1df;
@@ -75,19 +75,23 @@
     .corner{
       background: rgba(106,123,95,0.12);
     }
+
+    /* tiny "gameboy-ish" units */
     .unit{
-      width: 70%;
-      height: 70%;
-      border-radius: 10px;
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
       display:flex;
       align-items:center;
       justify-content:center;
-      font-weight:700;
-      color:#fff;
-      box-shadow: 0 2px 0 rgba(0,0,0,0.15);
+      font-size: 18px;
+      line-height: 1;
+      background: transparent;
+      box-shadow:none;
+      transform: translateY(-1px);
     }
-    .unitA{ background:#2b6cff; }
-    .unitB{ background:#ff3b3b; }
+    .unitA::after{ content:"🪖"; }
+    .unitB::after{ content:"🎖️"; }
 
     /* dpad */
     .dpad{
@@ -135,15 +139,15 @@
 
 <body>
 <div class="wrap">
-  <h2>🏰 Arena</h2>
+  <h2 id="title">🏰 Arena</h2>
 
   <div class="card">
-    <h3>Room</h3>
+    <h3 id="roomTitle">Room</h3>
 
-    <label>Room Code</label>
+    <label id="roomCodeLbl">Room Code</label>
     <input id="room" value="ARENA"/>
 
-    <label>Password</label>
+    <label id="passLbl">Password</label>
     <input id="pass" value="rose"/>
 
     <div class="row" style="margin-top:10px;">
@@ -153,72 +157,76 @@
 
     <hr/>
 
-    <h3>Join as Player</h3>
+    <h3 id="joinTitle">Join as Player</h3>
 
-    <label>Your name</label>
+    <label id="nameLbl">Your name</label>
     <input id="myName" value="Player"/>
 
-    <label>Seat</label>
+    <label id="seatLbl">Seat</label>
     <select id="seat">
       <option value="A">Player A</option>
       <option value="B">Player B</option>
     </select>
 
     <div class="hintBox">
-      <b>Option A: Kraft eingeben (wie im Screenshot)</b>
+      <b id="optATitle">Option A: Enter Kraft (like screenshot)</b>
       <div class="row">
-        <input id="kSquad" placeholder="Schwadron Kraft (z.B. 36.846.418)" inputmode="numeric"/>
-        <input id="kHero" placeholder="Heldenkraft (z.B. 17.030.383)" inputmode="numeric"/>
+        <input id="kSquad" placeholder="Squad power (e.g. 36.846.418)" inputmode="numeric"/>
+        <input id="kHero" placeholder="Hero power (e.g. 17.030.383)" inputmode="numeric"/>
       </div>
       <div class="row">
-        <input id="kBuild" placeholder="Gebäudekraft" inputmode="numeric"/>
-        <input id="kTech" placeholder="Technologiekraft" inputmode="numeric"/>
+        <input id="kBuild" placeholder="Building power" inputmode="numeric"/>
+        <input id="kTech" placeholder="Tech power" inputmode="numeric"/>
       </div>
       <div class="row">
-        <input id="kGov" placeholder="Gouverneurausrüstung-Kraft" inputmode="numeric"/>
-        <input id="kPet" placeholder="Begleittierkraft" inputmode="numeric"/>
-      </div>
-
-      <div class="row">
-        <button id="btnCalc" onclick="calcFromKraft()">Aus Kraft berechnen → füllt HP/ATK/DEF</button>
+        <input id="kGov" placeholder="Governor gear power" inputmode="numeric"/>
+        <input id="kPet" placeholder="Pet power" inputmode="numeric"/>
       </div>
 
-      <div class="monoSmall">
-        Live-Update ist aktiv: sobald du Kraft eintippst, werden HP/ATK/DEF automatisch aktualisiert. <span class="ok">✅</span><br/>
-        Umrechnung (fest): HP aus Heldenkraft (/1.000.000), ATK aus Schwadron (/2.000.000), DEF aus (Gebäude+Tech+Gov+Pet) (/3.000.000). (mit Limits)
+      <div class="row">
+        <button id="btnCalc" onclick="calcFromKraft()">Calculate → fills HP/ATK/DEF</button>
+      </div>
+
+      <div class="monoSmall" id="optAHelp">
+        Live update: typing Kraft auto-updates HP/ATK/DEF. <span class="ok">✅</span><br/>
+        Fixed conversion: HP from Hero (/1,000,000), ATK from Squad (/2,000,000), DEF from (Build+Tech+Gov+Pet) (/3,000,000). (with limits)
       </div>
 
       <div class="monoSmall" style="margin-top:6px;">
-        Vorschau Stats: <b>HP</b> <span id="pvHp">-</span> | <b>ATK</b> <span id="pvAtk">-</span> | <b>DEF</b> <span id="pvDef">-</span> | <b>Total Kraft</b> <span id="pvTotal">-</span>
+        <span id="previewLbl">Preview</span>:
+        <b>HP</b> <span id="pvHp">-</span> |
+        <b>ATK</b> <span id="pvAtk">-</span> |
+        <b>DEF</b> <span id="pvDef">-</span> |
+        <b id="totalLbl">Total Kraft</b> <span id="pvTotal">-</span>
       </div>
     </div>
 
     <div class="hintBox">
-      <b>Option B: Direktwerte eingeben</b>
+      <b id="optBTitle">Option B: Enter direct values</b>
       <div class="row">
         <input id="hpMax" placeholder="HP Max (default 50)" inputmode="numeric"/>
         <input id="atk" placeholder="ATK (default 10)" inputmode="numeric"/>
         <input id="def" placeholder="DEF (default 5)" inputmode="numeric"/>
       </div>
-      <div class="small">Wenn Kraft-Felder ausgefüllt sind, werden diese bevorzugt genutzt.</div>
+      <div class="small" id="optBHelp">If Kraft fields are filled, those will be preferred.</div>
     </div>
 
     <button id="btnJoinSeat" onclick="joinSeat()">Join Player Seat</button>
 
     <div class="pillRow">
-      <div class="pill">Status: <span id="status">not connected</span></div>
-      <div class="pill">Role: <span id="role">-</span></div>
-      <div class="pill">Game: <span id="gameLine">-</span></div>
+      <div class="pill"><span id="statusLbl">Status</span>: <span id="status">not connected</span></div>
+      <div class="pill"><span id="roleLbl">Role</span>: <span id="role">-</span></div>
+      <div class="pill"><span id="gameLbl">Game</span>: <span id="gameLine">-</span></div>
     </div>
 
-    <div class="small">
-      ✅ Handy: D-Pad unten. PC: Pfeiltasten. <br/>
-      ⚠️ Attack geht nur, wenn du direkt neben dem Gegner stehst (1 Feld Abstand).
+    <div class="small" id="controlsHint">
+      ✅ Mobile: D-Pad below. Desktop: Arrow keys. <br/>
+      ⚠️ Attack works only if you stand next to the enemy (1 tile distance).
     </div>
   </div>
 
   <div class="card">
-    <h3>Game</h3>
+    <h3 id="gameTitle">Game</h3>
 
     <div class="boardWrap">
       <div>
@@ -242,15 +250,15 @@
       </div>
 
       <div style="flex:1; min-width:260px;">
-        <h4>Host Controls</h4>
+        <h4 id="hostTitle">Host Controls</h4>
         <div class="row">
           <button id="btnStartReset" onclick="hostStartReset()" disabled>Start Game (Host)</button>
         </div>
-        <div class="small">Spielzeit: 4 Minuten. Jede Minute kommt ein Event (Bonus/Malus).</div>
+        <div class="small" id="hostHelp">Game time: 4 minutes. Every minute an event happens (bonus/malus).</div>
 
         <hr/>
 
-        <h4>Actions (Players only)</h4>
+        <h4 id="actionsTitle">Actions (Players only)</h4>
         <div class="row">
           <button id="btnAttack" onclick="action('attack')" disabled>⚔️ Attack</button>
           <button id="btnDefend" onclick="action('defend')" disabled>🛡️ Defend (0/6)</button>
@@ -258,26 +266,26 @@
         </div>
 
         <div class="statsBox" id="statsBox" style="display:none;">
-          <div class="statLine"><b>Du:</b> <span id="meName">-</span></div>
+          <div class="statLine"><b id="meLbl">You</b>: <span id="meName">-</span></div>
           <div class="statLine">HP: <span id="meHp">-</span> / <span id="meHpMax">-</span></div>
           <div class="statLine">ATK: <span id="meAtk">-</span> | DEF: <span id="meDef">-</span></div>
-          <div class="statLine">Position: (<span id="meX">-</span>, <span id="meY">-</span>)</div>
-          <div class="statLine"><b>Kraft total:</b> <span id="meKTotal">-</span></div>
+          <div class="statLine"><span id="posLbl">Position</span>: (<span id="meX">-</span>, <span id="meY">-</span>)</div>
+          <div class="statLine"><b id="kraftLbl">Kraft total</b>: <span id="meKTotal">-</span></div>
         </div>
 
         <div class="statsBox" id="oppBox" style="display:none;">
-          <div class="statLine"><b>Gegner:</b> <span id="opName">-</span></div>
+          <div class="statLine"><b id="oppLbl">Opponent</b>: <span id="opName">-</span></div>
           <div class="statLine">HP: <span id="opHp">-</span> / <span id="opHpMax">-</span></div>
           <div class="statLine">ATK: <span id="opAtk">-</span> | DEF: <span id="opDef">-</span></div>
-          <div class="statLine">Position: (<span id="opX">-</span>, <span id="opY">-</span>)</div>
-          <div class="statLine"><b>Kraft total:</b> <span id="opKTotal">-</span></div>
+          <div class="statLine"><span id="posLbl2">Position</span>: (<span id="opX">-</span>, <span id="opY">-</span>)</div>
+          <div class="statLine"><b id="kraftLbl2">Kraft total</b>: <span id="opKTotal">-</span></div>
         </div>
       </div>
     </div>
   </div>
 
   <div class="card">
-    <h3>Battle Log</h3>
+    <h3 id="logTitle">Battle Log</h3>
     <div id="log">Not connected.</div>
   </div>
 </div>
@@ -286,15 +294,151 @@
 <script>
   const socket = io();
 
+  // ---- language (auto de/en) ----
+  const LANG = (navigator.language || "en").toLowerCase().startsWith("de") ? "de" : "en";
+  const T = {
+    de: {
+      room: "Room",
+      roomCode: "Room Code",
+      password: "Password",
+      host: "Host (Create)",
+      spectate: "Spectate",
+      joinAsPlayer: "Als Spieler beitreten",
+      yourName: "Dein Name",
+      seat: "Platz",
+      optA: "Option A: Kraft eingeben (wie im Screenshot)",
+      optAHelp: "Live-Update: beim Tippen werden HP/ATK/DEF automatisch aktualisiert. ✅\nUmrechnung: HP aus Heldenkraft (/1.000.000), ATK aus Schwadron (/2.000.000), DEF aus (Gebäude+Tech+Gov+Pet) (/3.000.000). (mit Limits)",
+      preview: "Vorschau",
+      totalKraft: "Total Kraft",
+      calc: "Aus Kraft berechnen → füllt HP/ATK/DEF",
+      optB: "Option B: Direktwerte eingeben",
+      optBHelp: "Wenn Kraft-Felder ausgefüllt sind, werden diese bevorzugt genutzt.",
+      joinSeat: "Join Player Seat",
+      status: "Status",
+      role: "Role",
+      game: "Game",
+      hint: "✅ Handy: D-Pad unten. PC: Pfeiltasten.\n⚠️ Attack geht nur, wenn du direkt neben dem Gegner stehst (1 Feld Abstand).",
+      gameTitle: "Game",
+      hostControls: "Host Controls",
+      hostHelp: "Spielzeit: 4 Minuten. Jede Minute kommt ein Event (Bonus/Malus).",
+      startHost: "Start Game (Host)",
+      resetHost: "Reset Game (Host)",
+      actions: "Actions (Players only)",
+      you: "Du",
+      opponent: "Gegner",
+      position: "Position",
+      battleLog: "Battle Log",
+      connected: "connected",
+      disconnected: "disconnected",
+      logConnected: "✅ Verbunden mit dem Server!",
+      kraftToStats: (hp, atk, def) => `🧮 Kraft→Stats: HP ${hp} | ATK ${atk} | DEF ${def}`,
+      kraftTotal: (tot) => `📊 Kraft total: ${tot}`,
+      noKraft: "⚠️ Keine Kraft eingetragen."
+    },
+    en: {
+      room: "Room",
+      roomCode: "Room Code",
+      password: "Password",
+      host: "Host (Create)",
+      spectate: "Spectate",
+      joinAsPlayer: "Join as Player",
+      yourName: "Your name",
+      seat: "Seat",
+      optA: "Option A: Enter Kraft (like screenshot)",
+      optAHelp: "Live update: typing Kraft auto-updates HP/ATK/DEF. ✅\nFixed conversion: HP from Hero (/1,000,000), ATK from Squad (/2,000,000), DEF from (Build+Tech+Gov+Pet) (/3,000,000). (with limits)",
+      preview: "Preview",
+      totalKraft: "Total Kraft",
+      calc: "Calculate → fills HP/ATK/DEF",
+      optB: "Option B: Enter direct values",
+      optBHelp: "If Kraft fields are filled, those will be preferred.",
+      joinSeat: "Join Player Seat",
+      status: "Status",
+      role: "Role",
+      game: "Game",
+      hint: "✅ Mobile: D-Pad below. Desktop: Arrow keys.\n⚠️ Attack works only if you stand next to the enemy (1 tile distance).",
+      gameTitle: "Game",
+      hostControls: "Host Controls",
+      hostHelp: "Game time: 4 minutes. Every minute an event happens (bonus/malus).",
+      startHost: "Start Game (Host)",
+      resetHost: "Reset Game (Host)",
+      actions: "Actions (Players only)",
+      you: "You",
+      opponent: "Opponent",
+      position: "Position",
+      battleLog: "Battle Log",
+      connected: "connected",
+      disconnected: "disconnected",
+      logConnected: "✅ Connected to server!",
+      kraftToStats: (hp, atk, def) => `🧮 Kraft→Stats: HP ${hp} | ATK ${atk} | DEF ${def}`,
+      kraftTotal: (tot) => `📊 Kraft total: ${tot}`,
+      noKraft: "⚠️ No Kraft entered."
+    }
+  }[LANG];
+
+  function applyTranslations(){
+    document.documentElement.lang = (LANG === "de") ? "de" : "en";
+    $("roomTitle").textContent = T.room;
+    $("roomCodeLbl").textContent = T.roomCode;
+    $("passLbl").textContent = T.password;
+    $("btnHost").textContent = T.host;
+    $("btnSpec").textContent = T.spectate;
+    $("joinTitle").textContent = T.joinAsPlayer;
+    $("nameLbl").textContent = T.yourName;
+    $("seatLbl").textContent = T.seat;
+    $("optATitle").textContent = T.optA;
+    $("btnCalc").textContent = T.calc;
+    $("optAHelp").textContent = T.optAHelp;
+    $("previewLbl").textContent = T.preview;
+    $("totalLbl").textContent = T.totalKraft;
+    $("optBTitle").textContent = T.optB;
+    $("optBHelp").textContent = T.optBHelp;
+    $("btnJoinSeat").textContent = T.joinSeat;
+    $("statusLbl").textContent = T.status;
+    $("roleLbl").textContent = T.role;
+    $("gameLbl").textContent = T.game;
+    $("controlsHint").textContent = T.hint;
+    $("gameTitle").textContent = T.gameTitle;
+    $("hostTitle").textContent = T.hostControls;
+    $("hostHelp").textContent = T.hostHelp;
+    $("actionsTitle").textContent = T.actions;
+    $("meLbl").textContent = T.you;
+    $("oppLbl").textContent = T.opponent;
+    $("posLbl").textContent = T.position;
+    $("posLbl2").textContent = T.position;
+    $("kraftLbl").textContent = T.totalKraft;
+    $("kraftLbl2").textContent = T.totalKraft;
+    $("logTitle").textContent = T.battleLog;
+
+    // placeholders (optional)
+    if (LANG === "de"){
+      $("kSquad").placeholder = "Schwadron Kraft (z.B. 36.846.418)";
+      $("kHero").placeholder = "Heldenkraft (z.B. 17.030.383)";
+      $("kBuild").placeholder = "Gebäudekraft";
+      $("kTech").placeholder = "Technologiekraft";
+      $("kGov").placeholder = "Gouverneurausrüstung-Kraft";
+      $("kPet").placeholder = "Begleittierkraft";
+    }
+  }
+
+  // ---- state ----
   let currentRoom = null;
   let currentRole = "-"; // host | player | spectator
   let currentSeat = null; // A | B | null
+  let isHost = false;      // IMPORTANT: remember if this socket is host
   let lastState = null;
 
   function $(id){ return document.getElementById(id); }
 
   function setStatus(t){ $("status").textContent = t; }
   function setRoleText(){
+    if (isHost && currentSeat) {
+      $("role").textContent = "host + player " + currentSeat;
+      return;
+    }
+    if (isHost) {
+      $("role").textContent = "host";
+      return;
+    }
     if (currentRole === "player") $("role").textContent = "player " + currentSeat;
     else $("role").textContent = currentRole || "-";
   }
@@ -367,7 +511,7 @@
     $("pvHp").textContent = s.hpMax;
     $("pvAtk").textContent = s.atk;
     $("pvDef").textContent = s.def;
-    $("pvTotal").textContent = kraftTotal(k).toLocaleString("de-DE");
+    $("pvTotal").textContent = kraftTotal(k).toLocaleString(LANG === "de" ? "de-DE" : "en-US");
 
     // live-fill direct fields
     $("hpMax").value = String(s.hpMax);
@@ -379,37 +523,40 @@
     updateKraftPreviewAndStats();
     const lines = ($("log").textContent || "").split("\n").filter(Boolean);
     if (anyKraftFilled()){
-      lines.push(`🧮 Kraft→Stats: HP ${$("hpMax").value} | ATK ${$("atk").value} | DEF ${$("def").value}`);
-      lines.push(`📊 Kraft total: ${$("pvTotal").textContent}`);
+      lines.push(T.kraftToStats($("hpMax").value, $("atk").value, $("def").value));
+      lines.push(T.kraftTotal($("pvTotal").textContent));
     } else {
-      lines.push("⚠️ Keine Kraft eingetragen.");
+      lines.push(T.noKraft);
     }
     setLog(lines);
   }
 
-  // live listeners (Feature 1)
-  ["kSquad","kBuild","kTech","kGov","kHero","kPet"].forEach(id=>{
-    window.addEventListener("load", () => {
+  // live listeners
+  window.addEventListener("load", () => {
+    applyTranslations();
+    ["kSquad","kBuild","kTech","kGov","kHero","kPet"].forEach(id=>{
       const el = $(id);
       el.addEventListener("input", updateKraftPreviewAndStats);
       el.addEventListener("change", updateKraftPreviewAndStats);
     });
+    updateKraftPreviewAndStats();
   });
 
   // ---------- sockets ----------
   socket.on("connect", () => {
-    setStatus("connected");
-    setLog(["✅ Connected to server!"]);
+    setStatus(T.connected);
+    setLog([T.logConnected]);
     currentRoom = null;
     currentRole = "-";
     currentSeat = null;
+    isHost = false;
     setRoleText();
     updateUI();
     updateKraftPreviewAndStats();
   });
 
   socket.on("disconnect", () => {
-    setStatus("disconnected");
+    setStatus(T.disconnected);
   });
 
   socket.on("errorMsg", (m) => {
@@ -419,9 +566,23 @@
     setLog(lines);
   });
 
+  // IMPORTANT:
+  // If the server tells us we are host, we keep isHost=true.
+  // If we join a seat afterwards, we still remain host.
   socket.on("role", ({ role, seat }) => {
-    currentRole = role;
-    currentSeat = seat || null;
+    if (role === "host") {
+      isHost = true;
+      currentRole = "host";
+      if (seat === "A" || seat === "B") currentSeat = seat;
+    } else if (role === "player") {
+      currentRole = "player";
+      currentSeat = seat || null;
+      // do NOT set isHost=false here; host can also join a seat
+    } else {
+      currentRole = role;
+      currentSeat = null;
+    }
+
     currentRoom = roomVal();
     setRoleText();
     updateUI();
@@ -452,14 +613,12 @@
 
     if (anyKraftFilled()){
       const s = kraftToStats(k);
-      // send derived stats + kraft for display (Feature 2)
       stats = {
         hpMax: String(s.hpMax),
         atk: String(s.atk),
         def: String(s.def),
         kraft: k,
       };
-      // ensure direct fields show what we send
       $("hpMax").value = String(s.hpMax);
       $("atk").value = String(s.atk);
       $("def").value = String(s.def);
@@ -482,18 +641,18 @@
 
   function move(dir){
     if (!currentRoom) return;
-    if (currentRole !== "player") return;
+    if (!currentSeat) return;
     socket.emit("move", { room: currentRoom, pass: passVal(), dir });
   }
 
   function action(type){
     if (!currentRoom) return;
-    if (currentRole !== "player") return;
+    if (!currentSeat) return;
     socket.emit("action", { room: currentRoom, pass: passVal(), type });
   }
 
   window.addEventListener("keydown", (e) => {
-    if (currentRole !== "player") return;
+    if (!currentSeat) return;
     if (e.key === "ArrowUp") move("up");
     if (e.key === "ArrowDown") move("down");
     if (e.key === "ArrowLeft") move("left");
@@ -501,8 +660,10 @@
   });
 
   function updateUI(){
-    $("btnStartReset").disabled = (currentRole !== "host");
-    const isPlayer = (currentRole === "player");
+    // Host button should work if you are host (even if you also joined a seat)
+    $("btnStartReset").disabled = !isHost;
+
+    const isPlayer = !!currentSeat; // player actions enabled if seat exists
     $("btnAttack").disabled = !isPlayer;
     $("btnDefend").disabled = !isPlayer;
     $("btnHeal").disabled = !isPlayer;
@@ -523,10 +684,10 @@
       $("gameLine").textContent = `running (${mm}:${ss} left)`;
     }
 
-    if (currentRole === "host") {
-      $("btnStartReset").textContent = st.started ? "Reset Game (Host)" : "Start Game (Host)";
+    if (isHost) {
+      $("btnStartReset").textContent = st.started ? T.resetHost : T.startHost;
     } else {
-      $("btnStartReset").textContent = "Start Game (Host)";
+      $("btnStartReset").textContent = T.startHost;
     }
 
     setLog(st.log || []);
@@ -551,13 +712,11 @@
         if (A && A.pos && A.pos.x === x && A.pos.y === y){
           const u = document.createElement("div");
           u.className = "unit unitA";
-          u.textContent = "A";
           cell.appendChild(u);
         }
         if (B && B.pos && B.pos.x === x && B.pos.y === y){
           const u = document.createElement("div");
           u.className = "unit unitB";
-          u.textContent = "B";
           cell.appendChild(u);
         }
 
@@ -565,7 +724,7 @@
       }
     }
 
-    if (currentRole === "player" && currentSeat && st.players && st.players[currentSeat]){
+    if (currentSeat && st.players && st.players[currentSeat]){
       const me = st.players[currentSeat];
       $("btnDefend").textContent = `🛡️ Defend (${me.usedDefend || 0}/6)`;
       $("btnHeal").textContent = `✨ Heal (${me.usedHeal || 0}/6)`;
@@ -578,7 +737,7 @@
       $("meDef").textContent = me.def ?? "-";
       $("meX").textContent = me.pos?.x ?? "-";
       $("meY").textContent = me.pos?.y ?? "-";
-      $("meKTotal").textContent = (me.kraft?.total ?? 0).toLocaleString("de-DE");
+      $("meKTotal").textContent = (me.kraft?.total ?? 0).toLocaleString(LANG === "de" ? "de-DE" : "en-US");
 
       const oppSeat = (currentSeat === "A") ? "B" : "A";
       const op = st.players[oppSeat];
@@ -589,7 +748,7 @@
       $("opDef").textContent = op?.def ?? "-";
       $("opX").textContent = op?.pos?.x ?? "-";
       $("opY").textContent = op?.pos?.y ?? "-";
-      $("opKTotal").textContent = (op?.kraft?.total ?? 0).toLocaleString("de-DE");
+      $("opKTotal").textContent = (op?.kraft?.total ?? 0).toLocaleString(LANG === "de" ? "de-DE" : "en-US");
     } else {
       $("btnDefend").textContent = "🛡️ Defend (0/6)";
       $("btnHeal").textContent = "✨ Heal (0/6)";
