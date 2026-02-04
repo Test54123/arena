@@ -120,6 +120,16 @@
       margin-top:10px;
     }
     .statLine{ margin:4px 0; }
+
+    .hintBox{
+      border:1px solid rgba(106,123,95,0.35);
+      border-radius:10px;
+      padding:10px;
+      background: rgba(243,241,223,0.55);
+      margin-top:10px;
+    }
+    .monoSmall{ font-size: 12px; opacity: 0.9; }
+    .ok{ color:#0a6; font-weight:bold; }
   </style>
 </head>
 
@@ -154,10 +164,43 @@
       <option value="B">Player B</option>
     </select>
 
-    <div class="row">
-      <input id="hpMax" placeholder="HP Max (default 50)" inputmode="numeric"/>
-      <input id="atk" placeholder="ATK (default 10)" inputmode="numeric"/>
-      <input id="def" placeholder="DEF (default 5)" inputmode="numeric"/>
+    <div class="hintBox">
+      <b>Option A: Kraft eingeben (wie im Screenshot)</b>
+      <div class="row">
+        <input id="kSquad" placeholder="Schwadron Kraft (z.B. 36.846.418)" inputmode="numeric"/>
+        <input id="kHero" placeholder="Heldenkraft (z.B. 17.030.383)" inputmode="numeric"/>
+      </div>
+      <div class="row">
+        <input id="kBuild" placeholder="Gebäudekraft" inputmode="numeric"/>
+        <input id="kTech" placeholder="Technologiekraft" inputmode="numeric"/>
+      </div>
+      <div class="row">
+        <input id="kGov" placeholder="Gouverneurausrüstung-Kraft" inputmode="numeric"/>
+        <input id="kPet" placeholder="Begleittierkraft" inputmode="numeric"/>
+      </div>
+
+      <div class="row">
+        <button id="btnCalc" onclick="calcFromKraft()">Aus Kraft berechnen → füllt HP/ATK/DEF</button>
+      </div>
+
+      <div class="monoSmall">
+        Live-Update ist aktiv: sobald du Kraft eintippst, werden HP/ATK/DEF automatisch aktualisiert. <span class="ok">✅</span><br/>
+        Umrechnung (fest): HP aus Heldenkraft (/1.000.000), ATK aus Schwadron (/2.000.000), DEF aus (Gebäude+Tech+Gov+Pet) (/3.000.000). (mit Limits)
+      </div>
+
+      <div class="monoSmall" style="margin-top:6px;">
+        Vorschau Stats: <b>HP</b> <span id="pvHp">-</span> | <b>ATK</b> <span id="pvAtk">-</span> | <b>DEF</b> <span id="pvDef">-</span> | <b>Total Kraft</b> <span id="pvTotal">-</span>
+      </div>
+    </div>
+
+    <div class="hintBox">
+      <b>Option B: Direktwerte eingeben</b>
+      <div class="row">
+        <input id="hpMax" placeholder="HP Max (default 50)" inputmode="numeric"/>
+        <input id="atk" placeholder="ATK (default 10)" inputmode="numeric"/>
+        <input id="def" placeholder="DEF (default 5)" inputmode="numeric"/>
+      </div>
+      <div class="small">Wenn Kraft-Felder ausgefüllt sind, werden diese bevorzugt genutzt.</div>
     </div>
 
     <button id="btnJoinSeat" onclick="joinSeat()">Join Player Seat</button>
@@ -219,6 +262,7 @@
           <div class="statLine">HP: <span id="meHp">-</span> / <span id="meHpMax">-</span></div>
           <div class="statLine">ATK: <span id="meAtk">-</span> | DEF: <span id="meDef">-</span></div>
           <div class="statLine">Position: (<span id="meX">-</span>, <span id="meY">-</span>)</div>
+          <div class="statLine"><b>Kraft total:</b> <span id="meKTotal">-</span></div>
         </div>
 
         <div class="statsBox" id="oppBox" style="display:none;">
@@ -226,6 +270,7 @@
           <div class="statLine">HP: <span id="opHp">-</span> / <span id="opHpMax">-</span></div>
           <div class="statLine">ATK: <span id="opAtk">-</span> | DEF: <span id="opDef">-</span></div>
           <div class="statLine">Position: (<span id="opX">-</span>, <span id="opY">-</span>)</div>
+          <div class="statLine"><b>Kraft total:</b> <span id="opKTotal">-</span></div>
         </div>
       </div>
     </div>
@@ -263,6 +308,95 @@
     box.scrollTop = box.scrollHeight;
   }
 
+  // ---------- Kraft -> Stats (client side) ----------
+  function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
+
+  function parseDEInt(v){
+    if(!v) return 0;
+    const s = String(v).replace(/\./g,'').replace(/\s/g,'').trim();
+    const x = parseInt(s, 10);
+    return Number.isFinite(x) ? x : 0;
+  }
+
+  function kraftObj(){
+    return {
+      squad: $("kSquad").value,
+      build: $("kBuild").value,
+      tech:  $("kTech").value,
+      gov:   $("kGov").value,
+      hero:  $("kHero").value,
+      pet:   $("kPet").value,
+    };
+  }
+
+  function kraftTotal(k){
+    return parseDEInt(k.squad) + parseDEInt(k.build) + parseDEInt(k.tech) + parseDEInt(k.gov) + parseDEInt(k.hero) + parseDEInt(k.pet);
+  }
+
+  function kraftToStats(k){
+    const squad = parseDEInt(k.squad);
+    const build = parseDEInt(k.build);
+    const tech  = parseDEInt(k.tech);
+    const gov   = parseDEInt(k.gov);
+    const hero  = parseDEInt(k.hero);
+    const pet   = parseDEInt(k.pet);
+
+    const hpMax = clamp(50 + Math.round(hero / 1_000_000), 10, 200);
+    const atk   = clamp(10 + Math.round(squad / 2_000_000), 1, 50);
+    const defPool = build + tech + gov + pet;
+    const def   = clamp(5 + Math.round(defPool / 3_000_000), 0, 50);
+
+    return { hpMax, atk, def };
+  }
+
+  function anyKraftFilled(){
+    return Object.values(kraftObj()).some(v => String(v||"").trim() !== "");
+  }
+
+  function updateKraftPreviewAndStats(){
+    const k = kraftObj();
+    const has = anyKraftFilled();
+    if (!has){
+      $("pvHp").textContent = "-";
+      $("pvAtk").textContent = "-";
+      $("pvDef").textContent = "-";
+      $("pvTotal").textContent = "-";
+      return;
+    }
+    const s = kraftToStats(k);
+    $("pvHp").textContent = s.hpMax;
+    $("pvAtk").textContent = s.atk;
+    $("pvDef").textContent = s.def;
+    $("pvTotal").textContent = kraftTotal(k).toLocaleString("de-DE");
+
+    // live-fill direct fields
+    $("hpMax").value = String(s.hpMax);
+    $("atk").value = String(s.atk);
+    $("def").value = String(s.def);
+  }
+
+  function calcFromKraft(){
+    updateKraftPreviewAndStats();
+    const lines = ($("log").textContent || "").split("\n").filter(Boolean);
+    if (anyKraftFilled()){
+      lines.push(`🧮 Kraft→Stats: HP ${$("hpMax").value} | ATK ${$("atk").value} | DEF ${$("def").value}`);
+      lines.push(`📊 Kraft total: ${$("pvTotal").textContent}`);
+    } else {
+      lines.push("⚠️ Keine Kraft eingetragen.");
+    }
+    setLog(lines);
+  }
+
+  // live listeners (Feature 1)
+  ["kSquad","kBuild","kTech","kGov","kHero","kPet"].forEach(id=>{
+    window.addEventListener("load", () => {
+      const el = $(id);
+      el.addEventListener("input", updateKraftPreviewAndStats);
+      el.addEventListener("change", updateKraftPreviewAndStats);
+    });
+  });
+
+  // ---------- sockets ----------
   socket.on("connect", () => {
     setStatus("connected");
     setLog(["✅ Connected to server!"]);
@@ -271,16 +405,15 @@
     currentSeat = null;
     setRoleText();
     updateUI();
+    updateKraftPreviewAndStats();
   });
 
   socket.on("disconnect", () => {
     setStatus("disconnected");
-    // log bleibt stehen
   });
 
   socket.on("errorMsg", (m) => {
     alert(m);
-    // wir hängen es unten ans log an
     const lines = ($("log").textContent || "").split("\n").filter(Boolean);
     lines.push("❌ " + m);
     setLog(lines);
@@ -292,7 +425,6 @@
     currentRoom = roomVal();
     setRoleText();
     updateUI();
-    // state anfordern
     socket.emit("requestState", { room: currentRoom });
   });
 
@@ -302,15 +434,11 @@
   });
 
   function connectHost(){
-    const room = roomVal();
-    const pass = passVal();
-    socket.emit("hostRoom", { room, pass });
+    socket.emit("hostRoom", { room: roomVal(), pass: passVal() });
   }
 
   function connectSpectate(){
-    const room = roomVal();
-    const pass = passVal();
-    socket.emit("spectateRoom", { room, pass });
+    socket.emit("spectateRoom", { room: roomVal(), pass: passVal() });
   }
 
   function joinSeat(){
@@ -319,20 +447,37 @@
     const seat = $("seat").value;
     const name = ($("myName").value || "").trim();
 
-    const stats = {
-      hpMax: ($("hpMax").value || "").trim(),
-      atk: ($("atk").value || "").trim(),
-      def: ($("def").value || "").trim(),
-    };
+    let stats;
+    const k = kraftObj();
+
+    if (anyKraftFilled()){
+      const s = kraftToStats(k);
+      // send derived stats + kraft for display (Feature 2)
+      stats = {
+        hpMax: String(s.hpMax),
+        atk: String(s.atk),
+        def: String(s.def),
+        kraft: k,
+      };
+      // ensure direct fields show what we send
+      $("hpMax").value = String(s.hpMax);
+      $("atk").value = String(s.atk);
+      $("def").value = String(s.def);
+    } else {
+      stats = {
+        hpMax: ($("hpMax").value || "").trim(),
+        atk:   ($("atk").value || "").trim(),
+        def:   ($("def").value || "").trim(),
+        kraft: { squad:"",build:"",tech:"",gov:"",hero:"",pet:"" },
+      };
+    }
 
     socket.emit("joinSeat", { room, pass, seat, name, stats });
   }
 
   function hostStartReset(){
-    const room = roomVal();
-    const pass = passVal();
     const action = (lastState && lastState.started) ? "reset" : "start";
-    socket.emit("hostStartReset", { room, pass, action });
+    socket.emit("hostStartReset", { room: roomVal(), pass: passVal(), action });
   }
 
   function move(dir){
@@ -347,7 +492,6 @@
     socket.emit("action", { room: currentRoom, pass: passVal(), type });
   }
 
-  // PC: Pfeiltasten
   window.addEventListener("keydown", (e) => {
     if (currentRole !== "player") return;
     if (e.key === "ArrowUp") move("up");
@@ -370,7 +514,6 @@
   function render(st){
     updateUI();
 
-    // Game line
     if (!st.started) {
       $("gameLine").textContent = "not started";
     } else {
@@ -380,17 +523,14 @@
       $("gameLine").textContent = `running (${mm}:${ss} left)`;
     }
 
-    // Host button label
     if (currentRole === "host") {
       $("btnStartReset").textContent = st.started ? "Reset Game (Host)" : "Start Game (Host)";
     } else {
       $("btnStartReset").textContent = "Start Game (Host)";
     }
 
-    // Log
     setLog(st.log || []);
 
-    // Render Board (uses server grid)
     const w = st.grid?.w || 4;
     const h = st.grid?.h || 4;
     const board = $("board");
@@ -398,12 +538,7 @@
     board.style.gridTemplateRows = `repeat(${h}, 1fr)`;
     board.innerHTML = "";
 
-    const corners = new Set([
-      `0,0`,
-      `${w-1},0`,
-      `0,${h-1}`,
-      `${w-1},${h-1}`,
-    ]);
+    const corners = new Set([`0,0`, `${w-1},0`, `0,${h-1}`, `${w-1},${h-1}`]);
 
     const A = st.players?.A;
     const B = st.players?.B;
@@ -430,7 +565,6 @@
       }
     }
 
-    // Player action counters
     if (currentRole === "player" && currentSeat && st.players && st.players[currentSeat]){
       const me = st.players[currentSeat];
       $("btnDefend").textContent = `🛡️ Defend (${me.usedDefend || 0}/6)`;
@@ -444,6 +578,7 @@
       $("meDef").textContent = me.def ?? "-";
       $("meX").textContent = me.pos?.x ?? "-";
       $("meY").textContent = me.pos?.y ?? "-";
+      $("meKTotal").textContent = (me.kraft?.total ?? 0).toLocaleString("de-DE");
 
       const oppSeat = (currentSeat === "A") ? "B" : "A";
       const op = st.players[oppSeat];
@@ -454,6 +589,7 @@
       $("opDef").textContent = op?.def ?? "-";
       $("opX").textContent = op?.pos?.x ?? "-";
       $("opY").textContent = op?.pos?.y ?? "-";
+      $("opKTotal").textContent = (op?.kraft?.total ?? 0).toLocaleString("de-DE");
     } else {
       $("btnDefend").textContent = "🛡️ Defend (0/6)";
       $("btnHeal").textContent = "✨ Heal (0/6)";
