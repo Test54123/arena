@@ -19,7 +19,7 @@
       padding:12px;
       margin-bottom:14px;
     }
-    input,button{
+    input,button,select{
       width:100%;
       padding:10px;
       margin-top:6px;
@@ -33,28 +33,40 @@
       background:#eee;
       font-weight:bold;
     }
-    button:disabled{
-      opacity:0.4;
-      cursor:not-allowed;
-    }
+    button:disabled{ opacity:0.4; cursor:not-allowed; }
     #log{
       background:black;
       color:#00ff00;
       padding:10px;
       border-radius:10px;
-      min-height:140px;
+      min-height:160px;
       white-space:pre-wrap;
       font-size:14px;
+      overflow:auto;
+      max-height:260px;
+    }
+    .row{
+      display:flex;
+      gap:10px;
+    }
+    .row > *{ flex:1; }
+    .pill{
+      display:inline-block;
+      padding:4px 8px;
+      border:1px solid #6a7b5f;
+      border-radius:999px;
+      background:#eef2e7;
+      margin-right:6px;
+      margin-bottom:6px;
     }
   </style>
 </head>
-
 <body>
 
 <h2>🏰 Arena</h2>
 
 <div class="card">
-  <h3>Join Room</h3>
+  <h3>Room</h3>
 
   Room Code:
   <input id="room" value="ARENA"/>
@@ -62,24 +74,56 @@
   Password:
   <input id="pass" value="rose"/>
 
-  <button onclick="connectHost()">Host (Play)</button>
-  <button onclick="connectSpectate()">Spectate (Watch)</button>
+  <div class="row">
+    <button onclick="hostRoom()">Host (Create)</button>
+    <button onclick="spectate()">Spectate</button>
+  </div>
+
+  <hr/>
+
+  <h3>Join as Player</h3>
+
+  Your name:
+  <input id="myName" value="Player"/>
+
+  Seat:
+  <select id="seat">
+    <option value="A">Player A</option>
+    <option value="B">Player B</option>
+  </select>
+
+  <button onclick="joinPlayer()">Join Player Seat</button>
+
+  <div style="margin-top:10px">
+    <span class="pill" id="statusPill">Status: not connected</span>
+    <span class="pill" id="rolePill">Role: -</span>
+  </div>
 </div>
 
 <div class="card">
-  <h3>Players</h3>
+  <h3>Game</h3>
 
-  Player A:
-  <input id="a" value="PlayerA"/>
+  <div id="stateBox">
+    Not started.
+  </div>
 
-  Player B:
-  <input id="b" value="PlayerB"/>
+  <hr/>
 
-  <button onclick="startMatch()">Start Match</button>
+  <h3>Host Controls</h3>
+  <div class="row">
+    <input id="hostA" placeholder="Player A name (optional)"/>
+    <input id="hostB" placeholder="Player B name (optional)"/>
+  </div>
+  <button onclick="startGame()">Start / Reset Game (Host)</button>
 
-  <button id="shareBtn" disabled onclick="shareResult()">
-    Share Result 📲
-  </button>
+  <hr/>
+
+  <h3>Actions (Players only)</h3>
+  <div class="row">
+    <button onclick="act('attack')">⚔️ Attack</button>
+    <button onclick="act('defend')">🛡️ Defend</button>
+    <button onclick="act('heal')">✨ Heal</button>
+  </div>
 </div>
 
 <div class="card">
@@ -87,83 +131,120 @@
   <div id="log">Not connected.</div>
 </div>
 
-<!-- Socket.IO client served by your server -->
 <script src="/socket.io/socket.io.js"></script>
-
 <script>
   const socket = io();
 
-  let lastResult = "";
+  let joinedRoom = "";
+  let myRole = "";
+
+  function setStatus(txt){
+    document.getElementById("statusPill").textContent = "Status: " + txt;
+  }
+  function setRole(txt){
+    document.getElementById("rolePill").textContent = "Role: " + txt;
+  }
+
+  function clearLog(){
+    document.getElementById("log").textContent = "";
+  }
 
   function log(msg){
     const box = document.getElementById("log");
-    box.textContent += "\n" + msg;
+    box.textContent += (box.textContent ? "\n" : "") + msg;
     box.scrollTop = box.scrollHeight;
   }
 
   socket.on("connect", ()=>{
-    document.getElementById("log").textContent = "";
+    clearLog();
+    setStatus("connected");
+    setRole("-");
     log("✅ Connected to server!");
   });
 
   socket.on("disconnect", ()=>{
+    setStatus("disconnected");
     log("❌ Disconnected.");
   });
 
-  socket.on("statusMsg", (m)=> log(m));
-  socket.on("errorMsg", (m)=> log(m));
+  socket.on("serverHello", ()=>{ /* noop */ });
 
-  // When a result is broadcast, everyone in the room gets it (host + spectators)
-  socket.on("matchResult", (result)=>{
-    log("📣 Result received:");
-    log(result);
-    lastResult = result;
-    document.getElementById("shareBtn").disabled = false;
+  socket.on("errorMsg", (msg)=>{
+    log("❌ " + msg);
+    alert(msg);
   });
 
-  function connectHost(){
-    const room = document.getElementById("room").value.trim();
-    const pass = document.getElementById("pass").value.trim();
+  socket.on("joined", ({ room, role, seat })=>{
+    joinedRoom = room;
+    myRole = role;
+    setRole(role + (seat ? (" ("+seat+")") : ""));
+    log("✅ Joined room: " + room + " as " + role + (seat ? (" seat "+seat) : ""));
+  });
+
+  socket.on("state", ({ room, game })=>{
+    // render state
+    const A = game.players.A;
+    const B = game.players.B;
+    const turn = game.turn;
+    const started = game.started;
+
+    const html =
+      `<div class="pill">Room: ${room}</div>` +
+      `<div class="pill">Started: ${started ? "yes" : "no"}</div>` +
+      `<div class="pill">Turn: ${turn}</div>` +
+      `<div style="margin-top:10px"></div>` +
+      `<div class="pill">A: ${A.name} — HP ${A.hp}${A.defending ? " (DEF)" : ""}</div>` +
+      `<div class="pill">B: ${B.name} — HP ${B.hp}${B.defending ? " (DEF)" : ""}</div>` +
+      `<div style="margin-top:10px;border-top:1px dashed #6a7b5f;padding-top:10px"></div>` +
+      `<div><b>Latest log:</b></div>` +
+      `<div style="white-space:pre-wrap">${game.log.slice(-6).map(x=> "• " + x.msg).join("\n")}</div>`;
+
+    document.getElementById("stateBox").innerHTML = html;
+
+    // also mirror log nicely
+    clearLog();
+    log("✅ Connected to server!");
+    game.log.slice(-20).forEach(x => log(x.msg));
+  });
+
+  function roomPass(){
+    return {
+      room: document.getElementById("room").value.trim(),
+      pass: document.getElementById("pass").value.trim()
+    };
+  }
+
+  function hostRoom(){
+    const { room, pass } = roomPass();
     socket.emit("hostRoom", { room, pass });
+    log("🎮 Hosting room: " + room.toUpperCase());
   }
 
-  function connectSpectate(){
-    const room = document.getElementById("room").value.trim();
-    const pass = document.getElementById("pass").value.trim();
+  function spectate(){
+    const { room, pass } = roomPass();
     socket.emit("spectateRoom", { room, pass });
+    log("👀 Watching room: " + room.toUpperCase());
   }
 
-  function startMatch(){
-    const A = document.getElementById("a").value.trim();
-    const B = document.getElementById("b").value.trim();
-
-    if(!A || !B){
-      alert("Please enter both player names!");
-      return;
-    }
-
-    const winner = Math.random() > 0.5 ? A : B;
-    lastResult = `🏆 Winner: ${winner}\n(${A} vs ${B})`;
-
-    log("⚔️ Match started...");
-    log(lastResult);
-
-    document.getElementById("shareBtn").disabled = false;
+  function joinPlayer(){
+    const { room, pass } = roomPass();
+    const seat = document.getElementById("seat").value;
+    const name = document.getElementById("myName").value.trim();
+    socket.emit("joinPlayer", { room, pass, seat, name });
+    log("🎭 Joining as Player " + seat + "…");
   }
 
-  function shareResult(){
-    if(!lastResult) return;
+  function startGame(){
+    const { room } = roomPass();
+    const playerAName = document.getElementById("hostA").value.trim();
+    const playerBName = document.getElementById("hostB").value.trim();
+    socket.emit("startGame", { room, playerAName, playerBName });
+    log("🏁 Start game requested…");
+  }
 
-    const room = document.getElementById("room").value.trim();
-    const password = document.getElementById("pass").value.trim();
-
-    log("📤 Sending result...");
-    socket.emit("matchResult", { room, password, result: lastResult });
-
-    // Optional phone share UI:
-    if(navigator.share){
-      navigator.share({ title: "Arena Match Result", text: lastResult }).catch(()=>{});
-    }
+  function act(type){
+    const { room } = roomPass();
+    socket.emit("action", { room, type });
   }
 </script>
 
