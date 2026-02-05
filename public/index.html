@@ -6,132 +6,230 @@
   <title>Arena</title>
 
   <style>
+    /* ===============================
+       GAMEBOY 2-COLOR THEME
+       =============================== */
     :root{
-      --bg:#dfe9d6;
-      --card:#fffdf1;
-      --line:#6a7b5f;
-      --soft:#f3f1df;
-      --ink:#1a1a1a;
+      --gb-dark:#0f380f;
+      --gb-light:#9bbc0f;
+      --gb-mid:#7ea10a;
+      --a-accent: rgba(15,56,15,1);
+      --b-accent: rgba(155,188,15,1);
     }
 
+    *{ box-sizing:border-box; }
     body{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      background:var(--bg);
+      font-family: monospace;
+      background: var(--gb-light);
+      color: var(--gb-dark);
       padding:14px;
       margin:0;
-      color:var(--ink);
     }
-    h2{ margin: 6px 0 12px; }
+
     .wrap{ max-width: 980px; margin: 0 auto; }
+    h2{ margin: 6px 0 12px; }
+
     .card{
-      background:var(--card);
-      border:2px solid var(--line);
+      background: rgba(155,188,15,0.55);
+      border:3px solid var(--gb-dark);
       border-radius:12px;
       padding:12px;
       margin-bottom:14px;
     }
+
     label{ display:block; margin-top:8px; }
     input,select,button{
       width:100%;
       padding:10px;
       margin-top:6px;
       border-radius:10px;
-      border:1px solid var(--line);
+      border:2px solid var(--gb-dark);
       font-size:16px;
-      box-sizing:border-box;
+      background: var(--gb-light);
+      color: var(--gb-dark);
     }
+
+    button{ cursor:pointer; font-weight:bold; }
+    button:disabled{ opacity:0.4; cursor:not-allowed; }
+
     .row{ display:flex; gap:10px; flex-wrap:wrap; }
     .row > *{ flex:1; min-width: 140px; }
-    button{
-      cursor:pointer;
-      background:#eee;
-      font-weight:bold;
-    }
-    button:disabled{ opacity:0.4; cursor:not-allowed; }
 
     .pillRow{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
     .pill{
       padding:6px 10px;
-      border:1px solid var(--line);
+      border:2px solid var(--gb-dark);
       border-radius:999px;
-      background:var(--soft);
+      background: rgba(155,188,15,0.65);
       display:inline-block;
     }
-    .small{ font-size: 13px; opacity: 0.9; margin-top:8px; }
-    .monoSmall{ font-size: 12px; opacity: 0.9; }
-    .ok{ color:#0a6; font-weight:bold; }
 
-    /* board (fixed + clean on mobile) */
+    .small{ font-size: 13px; opacity: 0.95; margin-top:8px; }
+
+    .hintBox{
+      border:2px solid rgba(15,56,15,0.6);
+      border-radius:10px;
+      padding:10px;
+      background: rgba(155,188,15,0.30);
+      margin-top:10px;
+    }
+    .monoSmall{ font-size: 12px; opacity: 0.95; }
+
+    /* ===============================
+       BOARD
+       =============================== */
     .boardWrap{ display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start; }
 
-    .board{
-      width:min(320px, 92vw);
-      aspect-ratio: 1 / 1;
-      border:2px solid var(--line);
+    .boardShell{
+      display:inline-block;
+      border:3px solid var(--gb-dark);
       border-radius:14px;
-      background:var(--soft);
+      padding:10px;
+      background: rgba(155,188,15,0.35);
+    }
+
+    .board{
+      width: 280px;
+      height: 280px;
+      border:3px solid var(--gb-dark);
+      border-radius:10px;
+      background: rgba(155,188,15,0.30);
       display:grid;
       overflow:hidden;
+      position:relative;
       touch-action: manipulation;
-      box-shadow: inset 0 0 0 2px rgba(255,255,255,0.35);
     }
+
     .cell{
-      border:1px solid rgba(106,123,95,0.35);
+      border:1px solid rgba(15,56,15,0.55);
+      display:flex;
+      align-items:center;
+      justify-content:center;
       position:relative;
       user-select:none;
-      min-height: 0;
-      min-width: 0;
+      background: rgba(155,188,15,0.18);
     }
-    .corner{ background: rgba(106,123,95,0.12); }
 
-    /* Retro “Gameboy-ish” units (small, pixel-ish) */
+    .corner{
+      background: rgba(15,56,15,0.10);
+    }
+
+    /* ===============================
+       SOLDIER SPRITE (CSS pixel-ish)
+       Two "colors": A = dark silhouette,
+       B = light silhouette with dark outline
+       =============================== */
+    .unitWrap{
+      position:absolute;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      pointer-events:none;
+    }
+
     .unit{
+      width: 28px;
+      height: 32px;
+      position:relative;
+      image-rendering: pixelated;
+    }
+
+    /* HP bar */
+    .hpbar{
       position:absolute;
       left:50%;
-      top:50%;
-      transform: translate(-50%, -50%);
-      width: 24px;
-      height: 24px;
-      image-rendering: pixelated;
-      filter: drop-shadow(0 2px 0 rgba(0,0,0,0.22));
-      opacity: 0.98;
+      top:-11px;
+      transform:translateX(-50%);
+      width:30px;
+      height:7px;
+      border:2px solid var(--gb-dark);
+      background: rgba(155,188,15,0.85);
     }
-    .unitA{ }
-    .unitB{ }
-
-    /* simple pixel soldier as SVG; colored per team */
-    .unitA{
-      background-image: url("data:image/svg+xml;utf8,\
-<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'>\
-<rect width='16' height='16' fill='none'/>\
-<rect x='6' y='2' width='4' height='2' fill='%232b6cff'/>\
-<rect x='5' y='4' width='6' height='3' fill='%232b6cff'/>\
-<rect x='6' y='7' width='4' height='4' fill='%232b6cff'/>\
-<rect x='5' y='11' width='2' height='3' fill='%232b6cff'/>\
-<rect x='9' y='11' width='2' height='3' fill='%232b6cff'/>\
-<rect x='4' y='7' width='2' height='2' fill='%232b6cff'/>\
-<rect x='10' y='7' width='2' height='2' fill='%232b6cff'/>\
-<rect x='6' y='1' width='4' height='1' fill='%231a1a1a' opacity='0.35'/>\
-</svg>");
-      background-size: cover;
-    }
-    .unitB{
-      background-image: url("data:image/svg+xml;utf8,\
-<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'>\
-<rect width='16' height='16' fill='none'/>\
-<rect x='6' y='2' width='4' height='2' fill='%23ff3b3b'/>\
-<rect x='5' y='4' width='6' height='3' fill='%23ff3b3b'/>\
-<rect x='6' y='7' width='4' height='4' fill='%23ff3b3b'/>\
-<rect x='5' y='11' width='2' height='3' fill='%23ff3b3b'/>\
-<rect x='9' y='11' width='2' height='3' fill='%23ff3b3b'/>\
-<rect x='4' y='7' width='2' height='2' fill='%23ff3b3b'/>\
-<rect x='10' y='7' width='2' height='2' fill='%23ff3b3b'/>\
-<rect x='6' y='1' width='4' height='1' fill='%231a1a1a' opacity='0.35'/>\
-</svg>");
-      background-size: cover;
+    .hpfill{
+      height:100%;
+      background: var(--gb-dark);
+      width:100%;
     }
 
-    /* dpad */
+    /* sprite parts */
+    .sprite{
+      position:absolute;
+      left:0; top:0;
+      width:100%; height:100%;
+    }
+
+    .head,.body,.arm,.leg{
+      position:absolute;
+      transform-origin: top center;
+    }
+
+    /* A (dark) */
+    .unitA .head,
+    .unitA .body,
+    .unitA .arm,
+    .unitA .leg{ background: var(--gb-dark); }
+
+    /* B (light) + outline */
+    .unitB .head,
+    .unitB .body,
+    .unitB .arm,
+    .unitB .leg{
+      background: var(--gb-light);
+      outline: 2px solid var(--gb-dark);
+      outline-offset: -2px;
+    }
+
+    .head{ left:10px; top:0px; width:8px; height:8px; }
+    .body{ left:9px; top:8px; width:10px; height:10px; }
+
+    .arm{ top:10px; width:4px; height:7px; }
+    .arm.left{ left:5px; }
+    .arm.right{ right:5px; }
+
+    .leg{ top:18px; width:5px; height:12px; }
+    .leg.left{ left:8px; }
+    .leg.right{ right:8px; }
+
+    /* Facing */
+    .face-left  { transform: scaleX(-1); }
+    .face-right { transform: scaleX(1); }
+    .face-up    { transform: scaleX(1); }
+    .face-down  { transform: scaleX(1); }
+
+    /* Walking legs wiggle */
+    .walk .leg.left  { animation: walkL .22s infinite alternate; }
+    .walk .leg.right { animation: walkR .22s infinite alternate; }
+    @keyframes walkL{ from{ transform:rotate(18deg);} to{ transform:rotate(-18deg);} }
+    @keyframes walkR{ from{ transform:rotate(-18deg);} to{ transform:rotate(18deg);} }
+
+    /* Hit flash */
+    .hitFlash{ animation: hitFlash .25s 1; }
+    @keyframes hitFlash{
+      0%{ filter: invert(0); }
+      50%{ filter: invert(1); }
+      100%{ filter: invert(0); }
+    }
+
+    /* Attack slash overlay */
+    .slash{
+      position:absolute;
+      width:36px;
+      height:6px;
+      background: var(--gb-dark);
+      border:2px solid var(--gb-dark);
+      border-radius:6px;
+      opacity:0;
+      animation: slashPop .22s ease-out 1;
+      pointer-events:none;
+    }
+    @keyframes slashPop{
+      0%   { opacity:0.0; transform: translate(-50%,-50%) scaleX(0.3); }
+      35%  { opacity:1.0; transform: translate(-50%,-50%) scaleX(1.0); }
+      100% { opacity:0.0; transform: translate(-50%,-50%) scaleX(0.6); }
+    }
+
+    /* DPAD */
     .dpad{
       display:grid;
       grid-template-columns: 64px 64px 64px;
@@ -143,6 +241,7 @@
     .dpad button{ height:64px; width:64px; }
     .dpad .empty{ visibility:hidden; }
 
+    /* LOG */
     #log{
       background:black;
       color:#00ff00;
@@ -152,38 +251,31 @@
       white-space:pre-wrap;
       font-size:14px;
       overflow:auto;
+      border:3px solid var(--gb-dark);
     }
 
     .statsBox{
-      border:1px dashed rgba(106,123,95,0.7);
+      border:2px dashed rgba(15,56,15,0.85);
       border-radius:10px;
       padding:10px;
-      background: rgba(255,255,255,0.35);
+      background: rgba(155,188,15,0.25);
       margin-top:10px;
     }
     .statLine{ margin:4px 0; }
-
-    .hintBox{
-      border:1px solid rgba(106,123,95,0.35);
-      border-radius:10px;
-      padding:10px;
-      background: rgba(243,241,223,0.55);
-      margin-top:10px;
-    }
   </style>
 </head>
 
 <body>
 <div class="wrap">
-  <h2>🏰 <span id="t_title">Arena</span></h2>
+  <h2 id="title">🏰 Arena</h2>
 
   <div class="card">
-    <h3 id="t_room">Room</h3>
+    <h3 id="roomTitle">Room</h3>
 
-    <label id="t_roomCode">Room Code</label>
+    <label id="lblRoom">Room Code</label>
     <input id="room" value="ARENA"/>
 
-    <label id="t_password">Password</label>
+    <label id="lblPass">Password</label>
     <input id="pass" value="rose"/>
 
     <div class="row" style="margin-top:10px;">
@@ -193,79 +285,77 @@
 
     <hr/>
 
-    <h3 id="t_joinAsPlayer">Join as Player</h3>
+    <h3 id="joinTitle">Join as Player</h3>
 
-    <label id="t_yourName">Your name</label>
+    <label id="lblName">Your name</label>
     <input id="myName" value="Player"/>
 
-    <label id="t_seat">Seat</label>
+    <label id="lblSeat">Seat</label>
     <select id="seat">
-      <option value="A" id="t_seatA">Player A</option>
-      <option value="B" id="t_seatB">Player B</option>
+      <option value="A">Player A</option>
+      <option value="B">Player B</option>
     </select>
 
     <div class="hintBox">
-      <b id="t_optA">Option A: Enter Kraft (like screenshot)</b>
+      <b id="optA">Option A: Enter “Power” (like your Kingshot screenshot)</b>
       <div class="row">
-        <input id="kSquad" placeholder="Squad kraft (e.g. 36.846.418)" inputmode="numeric"/>
-        <input id="kHero" placeholder="Hero kraft (e.g. 17.030.383)" inputmode="numeric"/>
+        <input id="kSquad" placeholder="Squad Power (e.g. 36.846.418)" inputmode="numeric"/>
+        <input id="kHero" placeholder="Hero Power (e.g. 17.030.383)" inputmode="numeric"/>
       </div>
       <div class="row">
-        <input id="kBuild" placeholder="Building kraft" inputmode="numeric"/>
-        <input id="kTech" placeholder="Tech kraft" inputmode="numeric"/>
+        <input id="kBuild" placeholder="Building Power" inputmode="numeric"/>
+        <input id="kTech" placeholder="Tech Power" inputmode="numeric"/>
       </div>
       <div class="row">
-        <input id="kGov" placeholder="Governor gear kraft" inputmode="numeric"/>
-        <input id="kPet" placeholder="Pet kraft" inputmode="numeric"/>
+        <input id="kGov" placeholder="Governor Gear Power" inputmode="numeric"/>
+        <input id="kPet" placeholder="Pet Power" inputmode="numeric"/>
+      </div>
+      <div class="row">
+        <button id="btnCalc" onclick="calcFromKraft()">Power → Stats (fills HP/ATK/DEF)</button>
       </div>
 
-      <div class="row">
-        <button id="btnCalc" onclick="calcFromKraft()">Calc from Kraft → fills HP/ATK/DEF</button>
-      </div>
-
-      <div class="monoSmall" id="t_liveHint">
-        Live update is active: as soon as you type Kraft, HP/ATK/DEF auto-update. <span class="ok">✅</span><br/>
-        Fixed formula: HP from Hero (/1,000,000), ATK from Squad (/2,000,000), DEF from (Build+Tech+Gov+Pet) (/3,000,000). (with limits)
+      <div class="monoSmall" id="optAhelp">
+        Auto-update is ON: as you type power, HP/ATK/DEF update automatically.
+        Conversion: HP from Hero (/1,000,000), ATK from Squad (/2,000,000), DEF from (Build+Tech+Gov+Pet) (/3,000,000) with limits.
       </div>
 
       <div class="monoSmall" style="margin-top:6px;">
-        <span id="t_preview">Preview</span>:
-        <b>HP</b> <span id="pvHp">-</span> |
+        Preview: <b>HP</b> <span id="pvHp">-</span> |
         <b>ATK</b> <span id="pvAtk">-</span> |
         <b>DEF</b> <span id="pvDef">-</span> |
-        <b><span id="t_totalKraft">Total Kraft</span></b> <span id="pvTotal">-</span>
+        <b>Total</b> <span id="pvTotal">-</span>
       </div>
     </div>
 
     <div class="hintBox">
-      <b id="t_optB">Option B: Enter direct values</b>
+      <b id="optB">Option B: Enter stats directly</b>
       <div class="row">
         <input id="hpMax" placeholder="HP Max (default 50)" inputmode="numeric"/>
         <input id="atk" placeholder="ATK (default 10)" inputmode="numeric"/>
         <input id="def" placeholder="DEF (default 5)" inputmode="numeric"/>
       </div>
-      <div class="small" id="t_prefKraft">If Kraft fields are filled, Kraft is preferred.</div>
+      <div class="small" id="optBhelp">If power fields are filled, they are preferred.</div>
     </div>
 
-    <button id="btnJoinSeat" onclick="joinSeat()">Join Player Seat</button>
+    <button id="btnJoinSeat" onclick="joinSeat()" style="margin-top:10px;">Join Player Seat</button>
 
     <div class="pillRow">
-      <div class="pill"><span id="t_status">Status</span>: <span id="status">not connected</span></div>
-      <div class="pill"><span id="t_role">Role</span>: <span id="role">-</span></div>
-      <div class="pill"><span id="t_game">Game</span>: <span id="gameLine">-</span></div>
+      <div class="pill"><span id="lblStatus">Status</span>: <span id="status">not connected</span></div>
+      <div class="pill"><span id="lblRole">Role</span>: <span id="role">-</span></div>
+      <div class="pill"><span id="lblGame">Game</span>: <span id="gameLine">-</span></div>
     </div>
 
-    <div class="small" id="t_controlsHint">
-      ✅ Phone: D-Pad below. PC: Arrow keys. <br/>
-      ⚠️ Attack only works when you stand directly next to the opponent (distance 1 tile).
+    <div class="small" id="helpLine">
+      ✅ Mobile: D-Pad below. PC: Arrow keys. <br/>
+      ⚠️ Attack only works when you stand next to the enemy (1 tile).
     </div>
   </div>
 
   <div class="card">
-    <h3 id="t_gameTitle">Game</h3>
+    <h3 id="gameTitle">Game</h3>
 
     <div class="boardWrap">
-      <div>
+      <div class="boardShell">
         <div class="board" id="board"></div>
 
         <div id="dpadWrap" style="display:none;">
@@ -286,15 +376,15 @@
       </div>
 
       <div style="flex:1; min-width:260px;">
-        <h4 id="t_hostControls">Host Controls</h4>
+        <h4 id="hostTitle">Host Controls</h4>
         <div class="row">
           <button id="btnStartReset" onclick="hostStartReset()" disabled>Start Game (Host)</button>
         </div>
-        <div class="small" id="t_duration">Duration: 4 minutes. Each minute an event (bonus/malus).</div>
+        <div class="small" id="hostHint">Needs both players to join. Only host can start.</div>
 
         <hr/>
 
-        <h4 id="t_actions">Actions (Players only)</h4>
+        <h4 id="actionsTitle">Actions (Players only)</h4>
         <div class="row">
           <button id="btnAttack" onclick="action('attack')" disabled>⚔️ Attack</button>
           <button id="btnDefend" onclick="action('defend')" disabled>🛡️ Defend (0/6)</button>
@@ -302,192 +392,142 @@
         </div>
 
         <div class="statsBox" id="statsBox" style="display:none;">
-          <div class="statLine"><b id="t_you">You</b>: <span id="meName">-</span></div>
+          <div class="statLine"><b id="meLabel">You:</b> <span id="meName">-</span></div>
           <div class="statLine">HP: <span id="meHp">-</span> / <span id="meHpMax">-</span></div>
           <div class="statLine">ATK: <span id="meAtk">-</span> | DEF: <span id="meDef">-</span></div>
-          <div class="statLine"><span id="t_position">Position</span>: (<span id="meX">-</span>, <span id="meY">-</span>)</div>
-          <div class="statLine"><b><span id="t_kraftTotal">Kraft total</span>:</b> <span id="meKTotal">-</span></div>
+          <div class="statLine">Pos: (<span id="meX">-</span>, <span id="meY">-</span>)</div>
+          <div class="statLine"><b>Total Power:</b> <span id="meKTotal">-</span></div>
         </div>
 
         <div class="statsBox" id="oppBox" style="display:none;">
-          <div class="statLine"><b id="t_enemy">Enemy</b>: <span id="opName">-</span></div>
+          <div class="statLine"><b id="oppLabel">Enemy:</b> <span id="opName">-</span></div>
           <div class="statLine">HP: <span id="opHp">-</span> / <span id="opHpMax">-</span></div>
           <div class="statLine">ATK: <span id="opAtk">-</span> | DEF: <span id="opDef">-</span></div>
-          <div class="statLine"><span id="t_position2">Position</span>: (<span id="opX">-</span>, <span id="opY">-</span>)</div>
-          <div class="statLine"><b><span id="t_kraftTotal2">Kraft total</span>:</b> <span id="opKTotal">-</span></div>
+          <div class="statLine">Pos: (<span id="opX">-</span>, <span id="opY">-</span>)</div>
+          <div class="statLine"><b>Total Power:</b> <span id="opKTotal">-</span></div>
         </div>
       </div>
     </div>
   </div>
 
   <div class="card">
-    <h3 id="t_log">Battle Log</h3>
+    <h3 id="logTitle">Battle Log</h3>
     <div id="log">Not connected.</div>
   </div>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
-  // ---------- i18n ----------
-  const LANG = (navigator.language || "en").toLowerCase().startsWith("de") ? "de" : "en";
-  document.documentElement.lang = LANG;
-
-  const I18N = {
-    en: {
-      title:"Arena",
-      room:"Room",
-      roomCode:"Room Code",
-      password:"Password",
-      joinAsPlayer:"Join as Player",
-      yourName:"Your name",
-      seat:"Seat",
-      seatA:"Player A",
-      seatB:"Player B",
-      optA:"Option A: Enter Kraft (like screenshot)",
-      calc:"Calc from Kraft → fills HP/ATK/DEF",
-      liveHint:"Live update is active: as soon as you type Kraft, HP/ATK/DEF auto-update. ✅\nFixed formula: HP from Hero (/1,000,000), ATK from Squad (/2,000,000), DEF from (Build+Tech+Gov+Pet) (/3,000,000). (with limits)",
-      preview:"Preview",
-      totalKraft:"Total Kraft",
-      optB:"Option B: Enter direct values",
-      prefKraft:"If Kraft fields are filled, Kraft is preferred.",
-      status:"Status",
-      role:"Role",
-      game:"Game",
-      controlsHint:"✅ Phone: D-Pad below. PC: Arrow keys.\n⚠️ Attack only works when you stand directly next to the opponent (distance 1 tile).",
-      gameTitle:"Game",
-      hostControls:"Host Controls",
-      startHost:"Start Game (Host)",
-      resetHost:"Reset Game (Host)",
-      duration:"Duration: 4 minutes. Each minute an event (bonus/malus).",
-      actions:"Actions (Players only)",
-      you:"You",
-      enemy:"Enemy",
-      position:"Position",
-      kraftTotal:"Kraft total",
-      log:"Battle Log",
-      connected:"connected",
-      disconnected:"disconnected",
-      notStarted:"not started",
-      running:(mmss)=>`running (${mmss} left)`
-    },
-    de: {
-      title:"Arena",
-      room:"Room",
-      roomCode:"Room Code",
-      password:"Passwort",
-      joinAsPlayer:"Als Spieler beitreten",
-      yourName:"Dein Name",
-      seat:"Platz",
-      seatA:"Spieler A",
-      seatB:"Spieler B",
-      optA:"Option A: Kraft eingeben (wie im Screenshot)",
-      calc:"Aus Kraft berechnen → füllt HP/ATK/DEF",
-      liveHint:"Live-Update ist aktiv: sobald du Kraft eintippst, werden HP/ATK/DEF automatisch aktualisiert. ✅\nUmrechnung (fest): HP aus Heldenkraft (/1.000.000), ATK aus Schwadron (/2.000.000), DEF aus (Gebäude+Tech+Gov+Pet) (/3.000.000). (mit Limits)",
-      preview:"Vorschau",
-      totalKraft:"Total Kraft",
-      optB:"Option B: Direktwerte eingeben",
-      prefKraft:"Wenn Kraft-Felder ausgefüllt sind, werden diese bevorzugt genutzt.",
-      status:"Status",
-      role:"Rolle",
-      game:"Spiel",
-      controlsHint:"✅ Handy: D-Pad unten. PC: Pfeiltasten.\n⚠️ Attack geht nur, wenn du direkt neben dem Gegner stehst (1 Feld Abstand).",
-      gameTitle:"Spiel",
-      hostControls:"Host-Steuerung",
-      startHost:"Spiel starten (Host)",
-      resetHost:"Spiel zurücksetzen (Host)",
-      duration:"Spielzeit: 4 Minuten. Jede Minute kommt ein Event (Bonus/Malus).",
-      actions:"Aktionen (nur Spieler)",
-      you:"Du",
-      enemy:"Gegner",
-      position:"Position",
-      kraftTotal:"Kraft total",
-      log:"Battle Log",
-      connected:"verbunden",
-      disconnected:"getrennt",
-      notStarted:"nicht gestartet",
-      running:(mmss)=>`läuft (${mmss} übrig)`
-    }
-  };
-
-  function t(key, ...args){
-    const dict = I18N[LANG] || I18N.en;
-    const v = dict[key];
-    if (typeof v === "function") return v(...args);
-    return v ?? key;
-  }
-
-  function applyI18n(){
-    const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-    set("t_title", t("title"));
-    set("t_room", t("room"));
-    set("t_roomCode", t("roomCode"));
-    set("t_password", t("password"));
-    set("t_joinAsPlayer", t("joinAsPlayer"));
-    set("t_yourName", t("yourName"));
-    set("t_seat", t("seat"));
-    set("t_seatA", t("seatA"));
-    set("t_seatB", t("seatB"));
-    set("t_optA", t("optA"));
-    set("btnCalc", t("calc"));
-    set("t_liveHint", t("liveHint"));
-    set("t_preview", t("preview"));
-    set("t_totalKraft", t("totalKraft"));
-    set("t_optB", t("optB"));
-    set("t_prefKraft", t("prefKraft"));
-    set("t_status", t("status"));
-    set("t_role", t("role"));
-    set("t_game", t("game"));
-    set("t_controlsHint", t("controlsHint"));
-    set("t_gameTitle", t("gameTitle"));
-    set("t_hostControls", t("hostControls"));
-    set("t_duration", t("duration"));
-    set("t_actions", t("actions"));
-    set("t_you", t("you"));
-    set("t_enemy", t("enemy"));
-    set("t_position", t("position"));
-    set("t_position2", t("position"));
-    set("t_kraftTotal", t("kraftTotal"));
-    set("t_kraftTotal2", t("kraftTotal"));
-    set("t_log", t("log"));
-  }
-
-  applyI18n();
-
-  // ---------- sockets ----------
   const socket = io();
 
-  let currentRoom = null;
-  let currentRole = "-"; // host | player | spectator
-  let currentSeat = null; // A | B | null
-  let lastState = null;
+  // language: German if browser starts with "de", else English
+  const LANG = (navigator.language || "").toLowerCase().startsWith("de") ? "de" : "en";
 
+  const I18N = {
+    de: {
+      room:"Room", roomCode:"Room Code", pass:"Password",
+      host:"Host (Create)", spec:"Spectate",
+      join:"Als Spieler beitreten", yourName:"Dein Name", seat:"Seat",
+      status:"Status", role:"Rolle", game:"Spiel",
+      help:"✅ Handy: D-Pad unten. PC: Pfeiltasten.<br/>⚠️ Attack geht nur, wenn du direkt neben dem Gegner stehst (1 Feld).",
+      hostControls:"Host Controls", needsBoth:"Braucht Player A & B. Nur der Host kann starten.",
+      actions:"Aktionen (nur Spieler)",
+      you:"Du:", enemy:"Gegner:",
+      notConn:"nicht verbunden",
+      notStarted:"nicht gestartet",
+      startHost:"Start Game (Host)",
+      resetHost:"Reset Game (Host)",
+      running:"läuft",
+      connected:"verbunden",
+      optA:"Option A: Kraft eingeben (wie im Screenshot)",
+      optB:"Option B: Werte direkt eingeben",
+      optAhelp:"Auto-Update ist AN: beim Tippen aktualisieren sich HP/ATK/DEF. Umrechnung: HP aus Held (/1.000.000), ATK aus Schwadron (/2.000.000), DEF aus (Gebäude+Tech+Gov+Pet) (/3.000.000) mit Limits.",
+      optBhelp:"Wenn Kraft-Felder ausgefüllt sind, werden sie bevorzugt genutzt.",
+      btnCalc:"Kraft → Stats (füllt HP/ATK/DEF)"
+    },
+    en: {
+      room:"Room", roomCode:"Room Code", pass:"Password",
+      host:"Host (Create)", spec:"Spectate",
+      join:"Join as Player", yourName:"Your name", seat:"Seat",
+      status:"Status", role:"Role", game:"Game",
+      help:"✅ Mobile: D-Pad below. PC: Arrow keys.<br/>⚠️ Attack only works when you stand next to the enemy (1 tile).",
+      hostControls:"Host Controls", needsBoth:"Needs Player A & B. Only host can start.",
+      actions:"Actions (Players only)",
+      you:"You:", enemy:"Enemy:",
+      notConn:"not connected",
+      notStarted:"not started",
+      startHost:"Start Game (Host)",
+      resetHost:"Reset Game (Host)",
+      running:"running",
+      connected:"connected",
+      optA:"Option A: Enter “Power” (like your screenshot)",
+      optB:"Option B: Enter stats directly",
+      optAhelp:"Auto-update is ON: as you type power, HP/ATK/DEF update automatically. Conversion: HP from Hero (/1,000,000), ATK from Squad (/2,000,000), DEF from (Build+Tech+Gov+Pet) (/3,000,000) with limits.",
+      optBhelp:"If power fields are filled, they are preferred.",
+      btnCalc:"Power → Stats (fills HP/ATK/DEF)"
+    }
+  };
+  function t(k){ return I18N[LANG][k] || k; }
+
+  // ---------- UI helpers ----------
   function $(id){ return document.getElementById(id); }
-
-  function setStatusText(t){ $("status").textContent = t; }
-  function setRoleText(){
-    if (currentRole === "player") $("role").textContent = "player " + currentSeat;
-    else $("role").textContent = currentRole || "-";
-  }
-
-  function roomVal(){ return $("room").value.trim().toUpperCase(); }
-  function passVal(){ return $("pass").value.trim(); }
-
+  function setStatus(txt){ $("status").textContent = txt; }
   function setLog(lines){
     const box = $("log");
     box.textContent = (lines && lines.length) ? lines.join("\n") : "";
     box.scrollTop = box.scrollHeight;
   }
 
-  // ---------- Kraft -> Stats (client side) ----------
-  function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
+  // Apply i18n labels
+  (function applyI18n(){
+    $("roomTitle").textContent = t("room");
+    $("lblRoom").textContent = t("roomCode");
+    $("lblPass").textContent = t("pass");
+    $("btnHost").textContent = t("host");
+    $("btnSpec").textContent = t("spec");
+    $("joinTitle").textContent = t("join");
+    $("lblName").textContent = t("yourName");
+    $("lblSeat").textContent = t("seat");
+    $("lblStatus").textContent = t("status");
+    $("lblRole").textContent = t("role");
+    $("lblGame").textContent = t("game");
+    $("helpLine").innerHTML = t("help");
+    $("hostTitle").textContent = t("hostControls");
+    $("hostHint").textContent = t("needsBoth");
+    $("actionsTitle").textContent = t("actions");
+    $("meLabel").textContent = t("you");
+    $("oppLabel").textContent = t("enemy");
+    $("optA").textContent = t("optA");
+    $("optB").textContent = t("optB");
+    $("optAhelp").textContent = t("optAhelp");
+    $("optBhelp").textContent = t("optBhelp");
+    $("btnCalc").textContent = t("btnCalc");
+  })();
 
+  // ---------- state ----------
+  let currentRoom = null;
+  let currentRole = "-"; // host | player | spectator
+  let currentSeat = null; // A | B | null
+  let lastState = null;
+
+  // animation memory
+  const lastPos = { A:null, B:null };
+  const lastHp  = { A:null, B:null };
+  const lastDir = { A:"down", B:"up" };
+  const walkingUntil = { A:0, B:0 };
+  const hitUntil = { A:0, B:0 };
+
+  function roomVal(){ return $("room").value.trim().toUpperCase(); }
+  function passVal(){ return $("pass").value.trim(); }
+
+  // ---------- Kraft -> Stats (client) ----------
+  function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
   function parseDEInt(v){
     if(!v) return 0;
     const s = String(v).replace(/\./g,'').replace(/\s/g,'').trim();
     const x = parseInt(s, 10);
     return Number.isFinite(x) ? x : 0;
   }
-
   function kraftObj(){
     return {
       squad: $("kSquad").value,
@@ -498,11 +538,9 @@
       pet:   $("kPet").value,
     };
   }
-
   function kraftTotal(k){
     return parseDEInt(k.squad) + parseDEInt(k.build) + parseDEInt(k.tech) + parseDEInt(k.gov) + parseDEInt(k.hero) + parseDEInt(k.pet);
   }
-
   function kraftToStats(k){
     const squad = parseDEInt(k.squad);
     const build = parseDEInt(k.build);
@@ -518,16 +556,9 @@
 
     return { hpMax, atk, def };
   }
-
   function anyKraftFilled(){
     return Object.values(kraftObj()).some(v => String(v||"").trim() !== "");
   }
-
-  function fmtNumber(n){
-    const locale = (LANG === "de") ? "de-DE" : "en-US";
-    return Number(n || 0).toLocaleString(locale);
-  }
-
   function updateKraftPreviewAndStats(){
     const k = kraftObj();
     const has = anyKraftFilled();
@@ -542,25 +573,23 @@
     $("pvHp").textContent = s.hpMax;
     $("pvAtk").textContent = s.atk;
     $("pvDef").textContent = s.def;
-    $("pvTotal").textContent = fmtNumber(kraftTotal(k));
+    $("pvTotal").textContent = kraftTotal(k).toLocaleString(LANG==="de"?"de-DE":"en-US");
 
     $("hpMax").value = String(s.hpMax);
     $("atk").value = String(s.atk);
     $("def").value = String(s.def);
   }
-
   function calcFromKraft(){
     updateKraftPreviewAndStats();
     const lines = ($("log").textContent || "").split("\n").filter(Boolean);
     if (anyKraftFilled()){
-      lines.push(`🧮 Kraft→Stats: HP ${$("hpMax").value} | ATK ${$("atk").value} | DEF ${$("def").value}`);
-      lines.push(`📊 ${t("totalKraft")}: ${$("pvTotal").textContent}`);
+      lines.push(`🧮 Power→Stats: HP ${$("hpMax").value} | ATK ${$("atk").value} | DEF ${$("def").value}`);
+      lines.push(`📊 Total: ${$("pvTotal").textContent}`);
     } else {
-      lines.push(LANG === "de" ? "⚠️ Keine Kraft eingetragen." : "⚠️ No Kraft entered.");
+      lines.push("⚠️ No power entered.");
     }
     setLog(lines);
   }
-
   window.addEventListener("load", () => {
     ["kSquad","kBuild","kTech","kGov","kHero","kPet"].forEach(id=>{
       const el = $(id);
@@ -570,49 +599,13 @@
     updateKraftPreviewAndStats();
   });
 
-  socket.on("connect", () => {
-    setStatusText(t("connected"));
-    setLog(["✅ Connected to server!"]);
-    currentRoom = null;
-    currentRole = "-";
-    currentSeat = null;
-    setRoleText();
-    updateUI();
-  });
-
-  socket.on("disconnect", () => {
-    setStatusText(t("disconnected"));
-  });
-
-  socket.on("errorMsg", (m) => {
-    alert(m);
-    const lines = ($("log").textContent || "").split("\n").filter(Boolean);
-    lines.push("❌ " + m);
-    setLog(lines);
-  });
-
-  socket.on("role", ({ role, seat }) => {
-    currentRole = role;
-    currentSeat = seat || null;
-    currentRoom = roomVal();
-    setRoleText();
-    updateUI();
-    socket.emit("requestState", { room: currentRoom });
-  });
-
-  socket.on("state", (st) => {
-    lastState = st;
-    render(st);
-  });
-
+  // ---------- connect/join ----------
   function connectHost(){
     socket.emit("hostRoom", { room: roomVal(), pass: passVal() });
   }
-
   function connectSpectate(){
     socket.emit("spectateRoom", { room: roomVal(), pass: passVal() });
   }
-
   function joinSeat(){
     const room = roomVal();
     const pass = passVal();
@@ -662,6 +655,7 @@
     socket.emit("action", { room: currentRoom, pass: passVal(), type });
   }
 
+  // keyboard
   window.addEventListener("keydown", (e) => {
     if (currentRole !== "player") return;
     if (e.key === "ArrowUp") move("up");
@@ -670,6 +664,11 @@
     if (e.key === "ArrowRight") move("right");
   });
 
+  // ---------- UI enable/disable ----------
+  function setRoleText(){
+    if (currentRole === "player") $("role").textContent = "player " + currentSeat;
+    else $("role").textContent = currentRole || "-";
+  }
   function updateUI(){
     $("btnStartReset").disabled = (currentRole !== "host");
     const isPlayer = (currentRole === "player");
@@ -681,18 +680,110 @@
     $("oppBox").style.display = isPlayer ? "block" : "none";
   }
 
+  // ---------- direction helpers ----------
+  function dirFromDelta(prev, cur){
+    if (!prev || !cur) return null;
+    if (cur.x > prev.x) return "right";
+    if (cur.x < prev.x) return "left";
+    if (cur.y > prev.y) return "down";
+    if (cur.y < prev.y) return "up";
+    return null;
+  }
+  function faceClass(dir){
+    if (dir === "left") return "face-left";
+    if (dir === "right") return "face-right";
+    if (dir === "up") return "face-up";
+    return "face-down";
+  }
+  function toward(att, def){
+    if (!att || !def) return null;
+    const dx = def.x - att.x;
+    const dy = def.y - att.y;
+    if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? "right" : "left";
+    return dy > 0 ? "down" : "up";
+  }
+
+  function spawnSlash(boardEl, ax, ay, bx, by, w, h){
+    const rect = boardEl.getBoundingClientRect();
+    const cellW = rect.width / w;
+    const cellH = rect.height / h;
+    const mx = (ax + bx + 1) / 2 * cellW;
+    const my = (ay + by + 1) / 2 * cellH;
+
+    const slash = document.createElement("div");
+    slash.className = "slash";
+    slash.style.left = `${mx}px`;
+    slash.style.top  = `${my}px`;
+
+    const dx = bx - ax;
+    const dy = by - ay;
+    let ang = 0;
+    if (dx === 1) ang = 0;
+    else if (dx === -1) ang = 180;
+    else if (dy === 1) ang = 90;
+    else if (dy === -1) ang = -90;
+    slash.style.transform = `translate(-50%,-50%) rotate(${ang}deg)`;
+
+    boardEl.appendChild(slash);
+    setTimeout(() => slash.remove(), 260);
+  }
+
+  function makeUnitNode(seatKey, p){
+    const wrap = document.createElement("div");
+    wrap.className = "unitWrap";
+
+    const unit = document.createElement("div");
+    unit.className = "unit " + (seatKey === "A" ? "unitA" : "unitB");
+
+    // HP bar
+    const hpbar = document.createElement("div");
+    hpbar.className = "hpbar";
+    const hpfill = document.createElement("div");
+    hpfill.className = "hpfill";
+    const ratio = (p.hpMax > 0) ? Math.max(0, Math.min(1, p.hp / p.hpMax)) : 0;
+    hpfill.style.width = `${Math.round(ratio * 100)}%`;
+    hpbar.appendChild(hpfill);
+    unit.appendChild(hpbar);
+
+    const sprite = document.createElement("div");
+    const dir = lastDir[seatKey] || "down";
+    const walking = (Date.now() < walkingUntil[seatKey]) ? "walk" : "";
+    const hit = (Date.now() < hitUntil[seatKey]) ? "hitFlash" : "";
+    sprite.className = `sprite ${faceClass(dir)} ${walking} ${hit}`.trim();
+
+    const head = document.createElement("div"); head.className="head";
+    const body = document.createElement("div"); body.className="body";
+    const armL = document.createElement("div"); armL.className="arm left";
+    const armR = document.createElement("div"); armR.className="arm right";
+    const legL = document.createElement("div"); legL.className="leg left";
+    const legR = document.createElement("div"); legR.className="leg right";
+
+    sprite.appendChild(head);
+    sprite.appendChild(body);
+    sprite.appendChild(armL);
+    sprite.appendChild(armR);
+    sprite.appendChild(legL);
+    sprite.appendChild(legR);
+
+    unit.appendChild(sprite);
+    wrap.appendChild(unit);
+    return wrap;
+  }
+
   function render(st){
     updateUI();
 
+    // Game line
     if (!st.started) {
       $("gameLine").textContent = t("notStarted");
     } else {
       const sec = Math.ceil((st.timeLeftMs || 0) / 1000);
       const mm = String(Math.floor(sec/60)).padStart(2,"0");
       const ss = String(sec%60).padStart(2,"0");
-      $("gameLine").textContent = t("running", `${mm}:${ss}`);
+      $("gameLine").textContent = `${t("running")} (${mm}:${ss})`;
     }
 
+    // Host button text
     if (currentRole === "host") {
       $("btnStartReset").textContent = st.started ? t("resetHost") : t("startHost");
     } else {
@@ -708,10 +799,60 @@
     board.style.gridTemplateRows = `repeat(${h}, 1fr)`;
     board.innerHTML = "";
 
-    const corners = new Set([`0,0`, `${w-1},0`, `0,${h-1}`, `${w-1},${h-1}`]);
+    const A = st.players?.A || null;
+    const B = st.players?.B || null;
 
-    const A = st.players?.A;
-    const B = st.players?.B;
+    // movement detection
+    [["A",A],["B",B]].forEach(([k,p])=>{
+      if (!p || !p.pos) return;
+      const prev = lastPos[k];
+      const d = dirFromDelta(prev, p.pos);
+      if (d){
+        lastDir[k] = d;
+        walkingUntil[k] = Date.now() + 450;
+      }
+      lastPos[k] = { x:p.pos.x, y:p.pos.y };
+    });
+
+    // hp delta detection -> flash + slash + attacker facing
+    if (A && B && A.pos && B.pos){
+      const prevA = (lastHp.A == null) ? A.hp : lastHp.A;
+      const prevB = (lastHp.B == null) ? B.hp : lastHp.B;
+
+      const aLost = Math.max(0, prevA - A.hp);
+      const bLost = Math.max(0, prevB - B.hp);
+
+      if (aLost > 0 || bLost > 0){
+        let defK = null, attK = null;
+        if (aLost > 0 && bLost === 0){ defK="A"; attK="B"; }
+        else if (bLost > 0 && aLost === 0){ defK="B"; attK="A"; }
+
+        if (defK && attK){
+          hitUntil[defK] = Date.now() + 260;
+          const att = (attK==="A") ? A : B;
+          const def = (defK==="A") ? A : B;
+
+          const face = toward(att.pos, def.pos);
+          if (face) lastDir[attK] = face;
+
+          const dist = Math.abs(att.pos.x - def.pos.x) + Math.abs(att.pos.y - def.pos.y);
+          if (dist === 1){
+            setTimeout(()=>spawnSlash(board, att.pos.x, att.pos.y, def.pos.x, def.pos.y, w, h), 0);
+          }
+        } else {
+          if (aLost > 0) hitUntil.A = Date.now() + 260;
+          if (bLost > 0) hitUntil.B = Date.now() + 260;
+        }
+      }
+
+      lastHp.A = A.hp;
+      lastHp.B = B.hp;
+    } else {
+      if (A) lastHp.A = A.hp;
+      if (B) lastHp.B = B.hp;
+    }
+
+    const corners = new Set([`0,0`, `${w-1},0`, `0,${h-1}`, `${w-1},${h-1}`]);
 
     for (let y=0; y<h; y++){
       for (let x=0; x<w; x++){
@@ -719,20 +860,16 @@
         cell.className = "cell" + (corners.has(`${x},${y}`) ? " corner" : "");
 
         if (A && A.pos && A.pos.x === x && A.pos.y === y){
-          const u = document.createElement("div");
-          u.className = "unit unitA";
-          cell.appendChild(u);
+          cell.appendChild(makeUnitNode("A", A));
         }
         if (B && B.pos && B.pos.x === x && B.pos.y === y){
-          const u = document.createElement("div");
-          u.className = "unit unitB";
-          cell.appendChild(u);
+          cell.appendChild(makeUnitNode("B", B));
         }
-
         board.appendChild(cell);
       }
     }
 
+    // player stats panel
     if (currentRole === "player" && currentSeat && st.players && st.players[currentSeat]){
       const me = st.players[currentSeat];
       $("btnDefend").textContent = `🛡️ Defend (${me.usedDefend || 0}/6)`;
@@ -746,7 +883,7 @@
       $("meDef").textContent = me.def ?? "-";
       $("meX").textContent = me.pos?.x ?? "-";
       $("meY").textContent = me.pos?.y ?? "-";
-      $("meKTotal").textContent = fmtNumber(me.kraft?.total ?? 0);
+      $("meKTotal").textContent = (me.kraft?.total ?? 0).toLocaleString(LANG==="de"?"de-DE":"en-US");
 
       const oppSeat = (currentSeat === "A") ? "B" : "A";
       const op = st.players[oppSeat];
@@ -757,13 +894,55 @@
       $("opDef").textContent = op?.def ?? "-";
       $("opX").textContent = op?.pos?.x ?? "-";
       $("opY").textContent = op?.pos?.y ?? "-";
-      $("opKTotal").textContent = fmtNumber(op?.kraft?.total ?? 0);
+      $("opKTotal").textContent = (op?.kraft?.total ?? 0).toLocaleString(LANG==="de"?"de-DE":"en-US");
     } else {
       $("btnDefend").textContent = "🛡️ Defend (0/6)";
       $("btnHeal").textContent = "✨ Heal (0/6)";
       $("btnAttack").textContent = "⚔️ Attack";
     }
+
+    // Host: enable start/reset only if both players exist
+    if (currentRole === "host"){
+      const both = !!(st.players?.A && st.players?.B);
+      $("btnStartReset").disabled = !both;
+    }
   }
+
+  // ---------- sockets ----------
+  socket.on("connect", () => {
+    setStatus(t("connected"));
+    setLog(["✅ Connected to server!"]);
+    currentRoom = null;
+    currentRole = "-";
+    currentSeat = null;
+    setRoleText();
+    updateUI();
+  });
+
+  socket.on("disconnect", () => {
+    setStatus("disconnected");
+  });
+
+  socket.on("errorMsg", (m) => {
+    alert(m);
+    const lines = ($("log").textContent || "").split("\n").filter(Boolean);
+    lines.push("❌ " + m);
+    setLog(lines);
+  });
+
+  socket.on("role", ({ role, seat }) => {
+    currentRole = role;
+    currentSeat = seat || null;
+    currentRoom = roomVal();
+    setRoleText();
+    updateUI();
+    socket.emit("requestState", { room: currentRoom });
+  });
+
+  socket.on("state", (st) => {
+    lastState = st;
+    render(st);
+  });
 </script>
 </body>
 </html>
