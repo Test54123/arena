@@ -80,8 +80,6 @@ function initialPlayerState(seat, name, stats) {
   };
 }
 
-const rooms = {};
-
 function safeStateForClients(room) {
   const r = rooms[room];
   if (!r) return null;
@@ -111,7 +109,7 @@ function safeStateForClients(room) {
     endTime: r.endTime,
     timeLeftMs: r.started ? Math.max(0, r.endTime - now()) : null,
     lastEvent: r.lastEvent || null,
-    log: r.log.slice(-60),
+    log: r.log.slice(-80),
     host: { connected: !!r.hostId },
     players: {
       A: packPlayer(r.players.A),
@@ -267,7 +265,9 @@ function startGame(room) {
   emitState(room);
 }
 
-// ---------- room helpers ----------
+// ---------- ROOMS ----------
+const rooms = {};
+
 function validateRoomCode(room) {
   if (typeof room !== "string") return null;
   const r = room.trim();
@@ -281,13 +281,18 @@ function checkPass(r, pass) {
   return r.pass === pass;
 }
 
+/**
+ * IMPORTANT: check player seats FIRST, then host.
+ * This allows the host socket to also be Player A/B (so host can play + still start/reset).
+ */
 function socketRoleInRoom(socket, room) {
   const r = rooms[room];
   if (!r) return { role: "none", seat: null };
 
-  if (r.hostId === socket.id) return { role: "host", seat: null };
   if (r.players.A && r.players.A.socketId === socket.id) return { role: "player", seat: "A" };
   if (r.players.B && r.players.B.socketId === socket.id) return { role: "player", seat: "B" };
+  if (r.hostId === socket.id) return { role: "host", seat: null };
+
   return { role: "spectator", seat: null };
 }
 
@@ -312,10 +317,7 @@ io.on("connection", (socket) => {
 
     socket.join(code);
     socket.data.room = code;
-
-    // host role
     socket.emit("role", { role: "host" });
-
     roomLog(code, `🎮 Host connected.`);
     emitState(code);
   });
@@ -348,9 +350,7 @@ io.on("connection", (socket) => {
 
     const cleanName = String(name || "").trim().slice(0, 20) || (seat === "A" ? "PlayerA" : "PlayerB");
     const st = stats || {};
-    const player = r.players[seat]
-      ? r.players[seat]
-      : initialPlayerState(seat, cleanName, st);
+    const player = r.players[seat] ? r.players[seat] : initialPlayerState(seat, cleanName, st);
 
     if (!r.started) {
       player.name = cleanName;
@@ -368,14 +368,7 @@ io.on("connection", (socket) => {
     socket.join(code);
     socket.data.room = code;
 
-    // IMPORTANT FIX:
-    // If this socket is also the host, keep role as "host" (and send seat info).
-    if (r.hostId === socket.id) {
-      socket.emit("role", { role: "host", seat });
-    } else {
-      socket.emit("role", { role: "player", seat });
-    }
-
+    socket.emit("role", { role: "player", seat });
     roomLog(code, `🧍 Player ${seat} joined as "${player.name}".`);
     emitState(code);
   });
@@ -388,9 +381,8 @@ io.on("connection", (socket) => {
     if (!checkPass(r, String(pass || "").trim())) return;
     if (r.hostId !== socket.id) return socket.emit("errorMsg", "Only host can do that.");
 
-    if (action === "start") {
-      startGame(code);
-    } else if (action === "reset") {
+    if (action === "start") startGame(code);
+    else if (action === "reset") {
       resetGame(code);
       emitState(code);
     }
@@ -405,7 +397,6 @@ io.on("connection", (socket) => {
 
     const role = socketRoleInRoom(socket, code);
     if (role.role !== "player") return;
-
     if (!r.started) return socket.emit("errorMsg", "Game not started.");
 
     const p = r.players[role.seat];
@@ -447,7 +438,6 @@ io.on("connection", (socket) => {
 
     const role = socketRoleInRoom(socket, code);
     if (role.role !== "player") return;
-
     if (!r.started) return socket.emit("errorMsg", "Game not started.");
 
     const me = r.players[role.seat];
